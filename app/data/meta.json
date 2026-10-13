@@ -1,5 +1,5 @@
 {
- "generated": "2026-10-13T15:23:35Z",
+ "generated": "2026-10-13T21:59:43Z",
  "today": "2026-10-13",
  "status": {
   "football": {
@@ -13,12 +13,12 @@
    "ok": true
   },
   "nba": {
-   "matches": 0,
-   "players": 370,
+   "matches": 1,
+   "players": 391,
    "ok": true
   },
   "euroleague": {
-   "matches": 20,
+   "matches": 13,
    "ok": true
   }
  },
@@ -2215,103 +2215,108 @@
    ]
   },
   "euroleague": {
-   "home_adv": 3.72,
-   "avg_points": 171.8,
+   "home_adv": 3.08,
+   "avg_points": 172.0,
    "table": [
     {
-     "team": "Olympiacos Piraeus",
-     "off": 90.6,
-     "def": 84.2
+     "team": "Panathinaikos AKTOR Athens",
+     "off": 86.8,
+     "def": 79.4
     },
     {
-     "team": "Panathinaikos AKTOR Athens",
-     "off": 87.6,
-     "def": 81.8
+     "team": "Olympiacos Piraeus",
+     "off": 91.5,
+     "def": 84.8
     },
     {
      "team": "Valencia Basket",
-     "off": 91.7,
-     "def": 86.7
-    },
-    {
-     "team": "Zalgiris Kaunas",
-     "off": 86.3,
-     "def": 83.8
+     "off": 92.3,
+     "def": 87.9
     },
     {
      "team": "Fenerbahce Tarfin Istanbul",
-     "off": 84.0,
+     "off": 86.1,
      "def": 81.9
     },
     {
      "team": "Real Madrid",
-     "off": 87.6,
-     "def": 85.5
+     "off": 88.5,
+     "def": 86.3
     },
     {
      "team": "Crvena Zvezda Meridianbet Belgrade",
-     "off": 83.4,
+     "off": 83.5,
      "def": 82.3
     },
     {
-     "team": "Partizan Mozzart Bet Belgrade",
-     "off": 85.0,
-     "def": 84.0
-    },
-    {
-     "team": "Besiktas Istanbul",
-     "off": 88.8,
-     "def": 88.0
+     "team": "Zalgiris Kaunas",
+     "off": 86.2,
+     "def": 85.1
     },
     {
      "team": "Fenerbahce Beko Istanbul",
      "off": 84.2,
-     "def": 83.5
+     "def": 83.6
+    },
+    {
+     "team": "Besiktas Istanbul",
+     "off": 88.6,
+     "def": 88.1
     },
     {
      "team": "FC Barcelona",
-     "off": 86.1,
-     "def": 85.5
-    },
-    {
-     "team": "Hapoel IBI Tel Aviv",
-     "off": 86.8,
-     "def": 86.8
+     "off": 86.0,
+     "def": 85.8
     },
     {
      "team": "AS Monaco",
-     "off": 86.6,
+     "off": 86.7,
      "def": 86.7
+    },
+    {
+     "team": "Hapoel IBI Tel Aviv",
+     "off": 86.7,
+     "def": 86.7
+    },
+    {
+     "team": "Dubai Basketball",
+     "off": 83.2,
+     "def": 83.7
+    },
+    {
+     "team": "Partizan Mozzart Bet Belgrade",
+     "off": 82.5,
+     "def": 83.0
     },
     {
      "team": "EA7 Emporio Armani Milan",
      "off": 86.2,
-     "def": 86.8
+     "def": 86.9
     },
     {
      "team": "Virtus Bologna",
-     "off": 85.4,
-     "def": 86.5
+     "off": 85.2,
+     "def": 86.3
     },
     {
      "team": "Anadolu Efes Istanbul",
-     "off": 82.6,
+     "off": 82.5,
      "def": 84.2
     },
     {
-     "team": "Dubai Basketball",
-     "off": 82.5,
-     "def": 84.6
-    },
-    {
      "team": "Paris Basketball",
-     "off": 85.9,
-     "def": 88.6
+     "off": 86.3,
+     "def": 89.0
     },
     {
      "team": "FC Bayern Munich",
-     "off": 84.3,
-     "def": 87.5
+     "off": 84.5,
+     "def": 87.6
+    },
+    {
+     "team": "Maccabi Rapyd Tel Aviv",
+     "off": 86.2,
+     "def": 89.3
     },
     {
      "team": "LDLC ASVEL Villeurbanne",
@@ -2319,19 +2324,14 @@
      "def": 88.5
     },
     {
-     "team": "Maccabi Rapyd Tel Aviv",
-     "off": 85.8,
-     "def": 89.3
-    },
-    {
      "team": "Kosner Baskonia Vitoria-Gasteiz",
-     "off": 86.4,
-     "def": 90.9
+     "off": 85.7,
+     "def": 91.3
     },
     {
      "team": "Armani Olimpia Milan",
-     "off": 82.4,
-     "def": 87.5
+     "off": 83.0,
+     "def": 89.1
     }
    ]
   }
