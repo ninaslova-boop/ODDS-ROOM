@@ -181,11 +181,21 @@ def card_games(rows: list[dict], w: float) -> list[dict]:
     return out
 
 
-def promoted_prior(cur_rows: list[dict], prev_rows: list[dict]) -> dict:
-    prev_teams = {r["HomeTeam"] for r in prev_rows} | {r["AwayTeam"] for r in prev_rows}
-    cur_teams = {r["HomeTeam"] for r in cur_rows} | {r["AwayTeam"] for r in cur_rows}
-    # newcomers to the division are usually weaker: start them below average
-    return {t: (-0.15, 0.15) for t in cur_teams - prev_teams} if prev_teams else {}
+UPPER = {"E1": "E0", "D2": "D1", "I2": "I1", "SP2": "SP1", "F2": "F1"}
+
+
+def _teams(rows: list[dict]) -> set[str]:
+    return {r["HomeTeam"] for r in rows} | {r["AwayTeam"] for r in rows}
+
+
+def newcomer_prior(cur_rows: list[dict], prev_rows: list[dict], upper_prev_rows: list[dict] | None = None) -> dict:
+    """Start values for teams that are new in the division.
+    Promoted teams are usually weaker than average, relegated teams usually stronger."""
+    prev_teams = _teams(prev_rows)
+    if not prev_teams:
+        return {}
+    relegated = _teams(upper_prev_rows or [])
+    return {t: ((0.15, -0.15) if t in relegated else (-0.15, 0.15)) for t in _teams(cur_rows) - prev_teams}
 
 
 def build(today: dt.date, horizon_days: int = 7) -> dict:
@@ -229,7 +239,7 @@ def build(today: dt.date, horizon_days: int = 7) -> dict:
             results[key] = {"goals": [fthg, ftag], "corners": [hc, ac],
                             "cards": [None if hy is None else hy + (hr or 0), None if ay is None else ay + (ar or 0)],
                             "sot": [hst, ast]}
-        prior = promoted_prior(cur, old)
+        prior = newcomer_prior(cur, old, data.get(UPPER.get(div, ""), {}).get("prev"))
         # previous season counts half (on top of time decay)
         goals = to_games(cur, "FTHG", "FTAG") + to_games(old, "FTHG", "FTAG", 0.5)
         rg = models.fit_poisson(goals, today, half_life_days=180, ridge=5.0, prior=prior)

@@ -113,14 +113,36 @@ def _season_windows(today: dt.date, start_month: int, end_month: int) -> list[tu
     return [prev, cur]
 
 
-def _fetch_range(sport: str, league: str, d1: dt.date, d2: dt.date) -> list[dict]:
+def _fetch_range(sport: str, league: str, d1: dt.date, d2: dt.date) -> tuple[list[dict], int, bool]:
+    """Fetch a date range. ESPN can reject long ranges (400): then split into weeks, then days.
+    Return (games, number of requests, True when every part of the range was fetched)."""
     ds = d1.strftime("%Y%m%d") if d1 == d2 else f"{d1:%Y%m%d}-{d2:%Y%m%d}"
-    j = http_get(f"{BASE}/{sport}/{league}/scoreboard", params={"dates": ds, "limit": 1000})
-    return [e for e in (parse_event(ev) for ev in j.get("events", [])) if e]
+    try:
+        j = http_get(f"{BASE}/{sport}/{league}/scoreboard", params={"dates": ds, "limit": 300}, retries=1 if d1 != d2 else 3)
+        return [e for e in (parse_event(ev) for ev in j.get("events", [])) if e], 1, True
+    except Exception:  # noqa: BLE001
+        if d1 == d2:
+            raise
+    span = 7 if (d2 - d1).days > 7 else 1
+    games, reqs, ok = [], 1, True
+    d = d1
+    while d <= d2:
+        e = min(d2, d + dt.timedelta(days=span - 1))
+        try:
+            g, n, part_ok = _fetch_range(sport, league, d, e)
+            games += g
+            reqs += n
+            ok = ok and part_ok
+        except Exception as ex:  # noqa: BLE001
+            log.warning("espn %s %s..%s: %s", league, d, e, ex)
+            ok = False
+        time.sleep(0.15)
+        d = e + dt.timedelta(days=1)
+    return games, reqs, ok
 
 
 def update_games(sport: str, league: str, today: dt.date, start_month: int = 10, end_month: int = 6,
-                 max_requests: int = 400) -> dict[str, dict]:
+                 max_requests: int = 900) -> dict[str, dict]:
     """Keep a disk cache of all games of the current and previous season. Return {id: game}."""
     path = CACHE_DIR / f"espn_{league}.json"
     cache = read_json(path, {"events": {}, "done": []})
@@ -143,12 +165,14 @@ def update_games(sport: str, league: str, today: dt.date, start_month: int = 10,
                     for x in days:
                         if x.isoformat() in done_days:
                             continue
-                        got += _fetch_range(sport, league, x, x)
-                        reqs += 1
+                        g, n, _ = _fetch_range(sport, league, x, x)
+                        got += g
+                        reqs += n
                         time.sleep(0.15)
+                    complete = True
                 else:
-                    got = _fetch_range(sport, league, d, chunk_end)
-                    reqs += 1
+                    got, n, complete = _fetch_range(sport, league, d, chunk_end)
+                    reqs += n
                     time.sleep(0.25)
             except Exception as e:  # noqa: BLE001
                 log.warning("espn %s %s..%s: %s", league, d, chunk_end, e)
@@ -158,7 +182,9 @@ def update_games(sport: str, league: str, today: dt.date, start_month: int = 10,
                 events[g["id"]] = g
             for x in days:
                 day_games = [g for g in got if (g["d"] or "")[:10] == x.isoformat()]
-                if x < today - dt.timedelta(days=2) and all(g["done"] for g in day_games):
+                # a day without games counts as done only when the whole range was fetched
+                if x < today - dt.timedelta(days=2) and all(g["done"] for g in day_games) \
+                        and (complete or day_games):
                     done_days.add(x.isoformat())
             d = chunk_end + dt.timedelta(days=1)
     # drop games older than the previous season window

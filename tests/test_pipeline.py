@@ -161,3 +161,33 @@ def test_picks_flow():
     log = picks.update(log, [match], {"fb:E0:x:A:B": {"goals": [2, 1]}})
     assert len(log["picks"]) == 1 and log["picks"][0]["status"] == "won"
     assert log["stats"]["all"]["profit"] == pytest.approx(0.9)
+
+
+def test_espn_range_split_on_400(monkeypatch, tmp_path):
+    calls = []
+
+    def fake_get(url, params=None, **kw):
+        calls.append(params["dates"])
+        if "-" in params["dates"] and params["dates"].split("-")[0] != params["dates"].split("-")[1]:
+            span = (dt.datetime.strptime(params["dates"][9:], "%Y%m%d") - dt.datetime.strptime(params["dates"][:8], "%Y%m%d")).days
+            if span > 6:
+                raise RuntimeError("400 Bad Request")
+        return {"events": []}
+
+    monkeypatch.setattr(espn, "http_get", fake_get)
+    monkeypatch.setattr(espn.time, "sleep", lambda s: None)
+    games, reqs, ok = espn._fetch_range("hockey", "nhl", dt.date(2025, 11, 1), dt.date(2025, 11, 30))
+    assert ok and games == []
+    assert calls[0] == "20251101-20251130"
+    assert "20251101-20251107" in calls and "20251129-20251130" in calls
+
+
+def test_newcomer_prior():
+    row = lambda h, a: {"HomeTeam": h, "AwayTeam": a}
+    cur = [row("Burnley", "Charlton"), row("Stoke", "QPR")]
+    prev = [row("Stoke", "QPR")]
+    upper_prev = [row("Burnley", "Arsenal")]
+    pr = football.newcomer_prior(cur, prev, upper_prev)
+    assert pr["Burnley"] == (0.15, -0.15)
+    assert pr["Charlton"] == (-0.15, 0.15)
+    assert "Stoke" not in pr
