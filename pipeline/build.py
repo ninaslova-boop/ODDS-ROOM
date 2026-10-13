@@ -11,7 +11,7 @@ import logging
 import traceback
 
 from . import football, odds_api, picks, players, sports
-from .util import OUT_DIR, ROOT, iso, now_utc, read_json, setup_logging, write_json
+from .util import CACHE_DIR, OUT_DIR, ROOT, iso, now_utc, read_json, setup_logging, write_json
 
 log = logging.getLogger("pipeline")
 PICKS_LOG = ROOT / "data" / "picks_log.json"
@@ -69,7 +69,7 @@ def main(argv=None):
         if nba:
             all_matches += nba["matches"]; results.update(nba["results"]); ratings["nba"] = nba["ratings"]
             errors += nba["errors"]
-            games = read_json(ROOT / "data" / "cache" / "espn_nba.json", {"events": {}})["events"]
+            games = read_json(CACHE_DIR / "espn_nba.json", {"events": {}})["events"]
             box = _safe("nba box", players.update_nba_boxes, games, errors=errors, default={"games": {}})
             player_out["nba"] = _safe("nba players", players.nba_players, nba, box, errors=errors, default=[])
         status["nba"] = {"matches": len(nba["matches"]) if nba else 0,

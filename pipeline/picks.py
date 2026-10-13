@@ -21,6 +21,7 @@ LOCAL = ZoneInfo("Europe/Ljubljana")
 MIN_EDGE = 0.05
 MIN_P = 0.40
 MAX_ODDS = 4.5
+MAX_EDGE = 0.25          # a bigger edge usually means stale news or a model error, not value
 LOG_WINDOW_H = 30
 VOID_AFTER_DAYS = 10
 MAX_TRACKED = 8000
@@ -39,7 +40,9 @@ def candidates(match: dict) -> list[dict]:
     for m in match["markets"]:
         o = m.get("odds")
         e = edge(m["p"], o)
-        if e is None or e < MIN_EDGE or m["p"] < MIN_P or o > MAX_ODDS:
+        if e is None or e < MIN_EDGE or e > MAX_EDGE or m["p"] < MIN_P or o > MAX_ODDS:
+            continue
+        if m.get("odds_assumed"):
             continue
         if match["sport"] == "nhl" and m["scope"] == "match" and m["kind"] == "X":
             continue

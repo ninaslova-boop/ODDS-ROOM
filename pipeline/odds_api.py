@@ -1,14 +1,15 @@
 """Optional: bookmaker odds from The Odds API (free plan: 500 credits / month).
 
-Set the repository secret ODDS_API_KEY to enable. Each sport costs 2 credits per run
-(markets h2h + totals, one region). The default list uses about 6 credits per day.
+Set the repository secret ODDS_API_KEY to enable. Each sport costs 2 credits per fetch
+(markets h2h + totals, one region). Odds are fetched once per day per sport, so the
+default list uses about 6 credits per day (about 180 per month).
 """
 from __future__ import annotations
 
 import logging
 import os
 
-from .util import http_get, match_name, parse_iso
+from .util import CACHE_DIR, http_get, match_name, now_utc, parse_iso, read_json, write_json
 
 log = logging.getLogger("pipeline.odds_api")
 
@@ -26,8 +27,18 @@ def _avg(prices: list[float]) -> float | None:
 
 
 def fetch(key: str, sport: str) -> list[dict]:
-    return http_get(f"https://api.the-odds-api.com/v4/sports/{sport}/odds",
+    """Fetch once per UTC day (3 runs a day would use about 540 credits / month), reuse the cache otherwise."""
+    path = CACHE_DIR / "odds_api.json"
+    cache = read_json(path, {})
+    today = now_utc().date().isoformat()
+    hit = cache.get(sport)
+    if hit and hit.get("day") == today:
+        return hit["events"]
+    events = http_get(f"https://api.the-odds-api.com/v4/sports/{sport}/odds",
                     params={"apiKey": key, "regions": "eu", "markets": "h2h,totals", "oddsFormat": "decimal"})
+    cache[sport] = {"day": today, "events": events}
+    write_json(path, cache)
+    return events
 
 
 def apply(matches: list[dict]) -> list[str]:
