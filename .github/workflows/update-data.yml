@@ -1,0 +1,63 @@
+name: Update data
+
+on:
+  schedule:
+    # 05:40, 11:40 and 17:40 UTC (cron runs only on the default branch)
+    - cron: "40 5,11,17 * * *"
+  workflow_dispatch:
+  push:
+    branches: ["claude/**", "main"]
+    paths:
+      - "pipeline/**"
+      - "tests/**"
+      - "requirements.txt"
+      - ".github/workflows/update-data.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-data-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install -r requirements.txt
+
+      - name: Unit tests
+        run: python -m pytest -q tests
+
+      - name: Build data
+        env:
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+        run: python -m pipeline.build
+
+      - name: Show source status
+        run: cat app/data/meta.json | head -c 4000
+
+      - name: Commit data
+        run: |
+          git config user.name "odds-room-bot"
+          git config user.email "odds-room-bot@users.noreply.github.com"
+          git add app/data data
+          if git diff --cached --quiet; then
+            echo "No data changes"
+            exit 0
+          fi
+          git commit -m "Update data $(date -u +'%Y-%m-%d %H:%M') UTC"
+          for i in 1 2 3 4; do
+            git pull --rebase -X theirs origin "${GITHUB_REF_NAME}" && git push origin "HEAD:${GITHUB_REF_NAME}" && exit 0
+            sleep $((i * 5))
+          done
+          exit 1

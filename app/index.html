@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="sl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Odds Room Analytics</title>
+<meta name="description" content="Analitika ekip in igralcev, rang lestvica najverjetnejših dogodkov, value proti kvotam, dnevnik pickov.">
+<meta name="theme-color" content="#04140E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <div class="logo"><span>THE</span><span class="g">ODDS</span><span>ROOM</span></div>
+    <div class="brand-sub">Analytics<br><span id="updated" class="muted">nalagam…</span></div>
+  </div>
+  <nav class="sports" id="sportChips" aria-label="Šport"></nav>
+  <nav class="tabs" id="tabs" aria-label="Pogled">
+    <button data-tab="matches" class="on">Tekme</button>
+    <button data-tab="ranking">Lestvica</button>
+    <button data-tab="value">Value</button>
+    <button data-tab="players">Igralci</button>
+    <button data-tab="log">Dnevnik</button>
+    <button data-tab="posts">Objave</button>
+  </nav>
+</header>
+
+<main id="view" class="wrap"></main>
+
+<div id="tip" class="tip" role="tooltip" hidden></div>
+
+<footer class="foot">
+  18+ · Ocene modela, ne obljube. Igraj za zabavo. Nikoli ne lovi izgub.<br>
+  Viri: football-data.co.uk · Understat · ESPN · NHL API · EuroLeague API
+</footer>
+<script src="app.js"></script>
+</body>
+</html>
