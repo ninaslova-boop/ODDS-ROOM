@@ -43,7 +43,19 @@ Orodja za kanal **The Odds Room**.
 - **Igralci**: stopnja na 90 min (nogomet) ali na tekmo (NHL), prilagojena nasprotniku in domu,
   Poissonova porazdelitev. NBA: povprečje in raztros zadnjih 15 tekem.
 
-Model ne ve za poškodbe, postave in motivacijo. Vedno preveri novice pred objavo.
+- **Evropska tekmovanja**: en Poissonov model za LP, EL in KL. Ekipa začne z oceno iz domače lige
+  (k = 0.6 domače ocene) + jakost lige (iz UEFA koeficientov), ridge 15 omeji vpliv malega vzorca pokalnih tekem.
+  Domače ocene: football-data.co.uk (16 lig) + ESPN (Avstrija, Norveška, Danska, Švedska, Švica, Češka, Ciper,
+  Izrael, Romunija, Irska); za klube iz ostalih lig se uporabi jakost njihove lige.
+- **Varovalka trga**: če se model pri 1X2 ali O/U 2.5 od Pinnacla brez marže (sicer od ESPN ali povprečja
+  stavnic) razlikuje za več kot 10 o. t., je trg označen »model nezanesljiv« in se ne beleži kot pick.
+  Kjer je Pinnacle na voljo, so verjetnosti 0.4 model + 0.6 Pinnacle.
+
+Model ne ve za motivacijo in vse novice. Vedno preveri novice pred objavo.
+
+### Backtest
+`python -m pipeline.backtest` (ali workflow *Backtest*): walk-forward log-loss in Brier za pokalni model
+(staro proti novo), Championship proti Pinnaclu in kalibracija NHL pickov. Poročilo: `backtest_report.md`.
 
 ### Nastavitev (enkrat)
 1. **Workflow** *Update data* teče vsakih 30 minut. Vsakih ~6 ur naredi polno osvežitev (vsi viri),

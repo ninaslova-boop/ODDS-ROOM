@@ -6,3 +6,4 @@ __pycache__/
 # source caches live in the GitHub Actions cache
 app/data/
 data/cache/
+backtest_report.md

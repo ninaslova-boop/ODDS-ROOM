@@ -10,7 +10,7 @@ import datetime as dt
 import logging
 import traceback
 
-from . import adjust, availability, football, odds_api, picks, players, soccer_espn, sports
+from . import adjust, availability, football, market, odds_api, picks, players, soccer_espn, sports
 from .util import CACHE_DIR, OUT_DIR, ROOT, RUN, iso, now_utc, parse_iso, read_json, setup_logging, write_json
 
 log = logging.getLogger("pipeline")
@@ -110,6 +110,10 @@ def main(argv=None):
     errors += aerr
     n_adj = _safe("adjust", adjust.apply, all_matches, player_out, avail, errors=errors, default=0)
     log.info("availability: %d matches with news, %d adjusted", len(avail), n_adj or 0)
+
+    # model against the market: guard and blend (football)
+    mst = _safe("market", market.apply, all_matches, adjust._rebuild_football, errors=errors, default={})
+    log.info("market check: %s", mst)
 
     # value info on each market
     for m in all_matches:

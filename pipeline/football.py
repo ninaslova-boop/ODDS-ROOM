@@ -147,7 +147,23 @@ def odds_from_row(r: dict) -> dict:
         "ah_home": first("AvgAHH", "B365AHH", "PAHH"),
         "ah_away": first("AvgAHA", "B365AHA", "PAHA"),
     }
-    return {k: v for k, v in o.items() if v is not None}
+    out = {k: v for k, v in o.items() if v is not None}
+    pin = pinnacle_from_row(r)
+    if pin:
+        out["pin"] = pin
+    return out
+
+
+def pinnacle_from_row(r: dict, closing: bool = False) -> dict:
+    """Pinnacle prices (the sharpest book in the file): opening/current or closing."""
+    keys = ({"1": "PSCH", "X": "PSCD", "2": "PSCA", "over2.5": "PC>2.5", "under2.5": "PC<2.5"} if closing else
+            {"1": "PSH", "X": "PSD", "2": "PSA", "over2.5": "P>2.5", "under2.5": "P<2.5"})
+    out = {}
+    for k, col in keys.items():
+        v = to_float(r.get(col))
+        if v and v > 1.0:
+            out[k] = v
+    return out if all(k in out for k in ("1", "X", "2")) else {}
 
 
 def attach_odds(markets: list[dict], odds: dict):

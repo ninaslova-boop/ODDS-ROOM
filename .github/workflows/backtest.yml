@@ -1,0 +1,49 @@
+name: Backtest
+
+on:
+  workflow_dispatch:
+    inputs:
+      part:
+        description: "nhl,e1,cups"
+        default: "nhl,e1,cups"
+  push:
+    branches: ["claude/**"]
+    paths:
+      - "pipeline/backtest.py"
+      - "pipeline/soccer_espn.py"
+      - "pipeline/market.py"
+      - ".github/workflows/backtest.yml"
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore source cache
+        uses: actions/cache/restore@v4
+        with:
+          path: data/cache
+          key: odds-cache-${{ github.run_id }}
+          restore-keys: odds-cache-
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Backtest
+        run: python -m pipeline.backtest --part "${{ github.event.inputs.part || 'nhl,e1,cups' }}" 2>&1 | grep --line-buffered -v " INFO "
+
+      - name: Report
+        if: always()
+        run: cat backtest_report.md || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backtest-report
+          path: backtest_report.md

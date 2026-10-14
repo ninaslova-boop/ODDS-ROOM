@@ -2,7 +2,7 @@
 
 Set the repository secret ODDS_API_KEY to enable. Each sport costs 2 credits per fetch
 (markets h2h + totals, one region). Odds are fetched once per day per sport, so the
-default list uses about 6 credits per day (about 180 per month).
+default list uses about 12 credits per day (about 360 per month).
 """
 from __future__ import annotations
 
@@ -17,8 +17,12 @@ SPORT_MAP = {
     "icehockey_nhl": "nhl", "basketball_nba": "nba", "basketball_euroleague": "euroleague",
     "soccer_epl": "E0", "soccer_spain_la_liga": "SP1", "soccer_germany_bundesliga": "D1",
     "soccer_italy_serie_a": "I1", "soccer_france_ligue_one": "F1",
+    "soccer_uefa_champs_league": "UCL", "soccer_uefa_europa_league": "UEL",
+    "soccer_uefa_europa_conference_league": "UECL",
 }
-DEFAULT_SPORTS = "icehockey_nhl,basketball_nba,basketball_euroleague"
+# UEFA cups first: football-data.co.uk has no Pinnacle prices for them
+DEFAULT_SPORTS = ("soccer_uefa_champs_league,soccer_uefa_europa_league,soccer_uefa_europa_conference_league,"
+                  "icehockey_nhl,basketball_nba,basketball_euroleague")
 
 
 def _avg(prices: list[float]) -> float | None:
@@ -68,13 +72,22 @@ def apply(matches: list[dict]) -> list[str]:
             m = next(x for x in near if x["home"] == h)
             h2h: dict[str, list] = {}
             totals: dict[tuple[str, float], list] = {}
+            pin: dict[str, float] = {}
             for b in ev.get("bookmakers", []):
+                is_pin = b.get("key") == "pinnacle"
                 for mk in b.get("markets", []):
                     for o in mk.get("outcomes", []):
                         if mk["key"] == "h2h":
                             h2h.setdefault(o["name"], []).append(o.get("price"))
+                            if is_pin:
+                                side = "1" if o["name"] == ev["home_team"] else ("2" if o["name"] == ev["away_team"] else "X")
+                                pin[side] = o.get("price")
                         elif mk["key"] == "totals" and o.get("point") is not None:
                             totals.setdefault((o["name"].lower(), float(o["point"])), []).append(o.get("price"))
+                            if is_pin and float(o["point"]) == 2.5:
+                                pin[f"{o['name'].lower()}2.5"] = o.get("price")
+            if m["sport"] == "football" and all(k in pin for k in ("1", "X", "2")):
+                m.setdefault("odds_raw", {})["pin"] = pin
             prices = {
                 "1": _avg(h2h.get(ev["home_team"], [])),
                 "2": _avg(h2h.get(ev["away_team"], [])),
