@@ -31,8 +31,10 @@ OUT = []
 
 
 def say(line: str = ""):
+    """Print and keep the report on disk after every line (a cancelled run still leaves a report)."""
     OUT.append(line)
     print(line, flush=True)
+    (ROOT / "backtest_report.md").write_text("\n".join(OUT), encoding="utf-8")
 
 
 # --------------------------------------------------------------------------

@@ -163,24 +163,43 @@ def test_picks_flow():
     assert log["stats"]["all"]["profit"] == pytest.approx(0.9)
 
 
-def test_espn_range_split_on_400(monkeypatch, tmp_path):
+def test_espn_fetches_days_in_parallel(monkeypatch):
     calls = []
 
     def fake_get(url, params=None, **kw):
         calls.append(params["dates"])
-        if "-" in params["dates"] and params["dates"].split("-")[0] != params["dates"].split("-")[1]:
-            span = (dt.datetime.strptime(params["dates"][9:], "%Y%m%d") - dt.datetime.strptime(params["dates"][:8], "%Y%m%d")).days
-            if span > 6:
-                raise RuntimeError("400 Bad Request")
+        if params["dates"] == "20251103":
+            raise RuntimeError("500")
         return {"events": []}
 
     monkeypatch.setattr(espn, "http_get", fake_get)
-    monkeypatch.setattr(espn.time, "sleep", lambda s: None)
     games, reqs, ok = espn._fetch_range("hockey", "nhl", dt.date(2025, 11, 1), dt.date(2025, 11, 30))
-    assert ok and games == []
-    assert calls[0] == "20251101-20251130"
-    assert "20251101-20251107" in calls and "20251129-20251130" in calls
+    assert reqs == 30 and not ok and games == []
+    assert sorted(calls) == [f"202511{d:02d}" for d in range(1, 31)]          # one request per day, no ranges
 
+
+def test_update_games_marks_done_days_and_limits_requests(monkeypatch, tmp_path):
+    monkeypatch.setattr(espn, "CACHE_DIR", tmp_path)
+    ev = lambda d, done: {"id": d, "date": f"{d[:4]}-{d[4:6]}-{d[6:]}T19:00Z", "season": {"type": 2},
+                          "competitions": [{"competitors": [
+                              {"homeAway": "home", "score": "1", "team": {"displayName": "A"}},
+                              {"homeAway": "away", "score": "0", "team": {"displayName": "B"}}],
+                              "status": {"type": {"completed": done}}}]}
+    calls = []
+
+    def fake_get(url, params=None, **kw):
+        calls.append(params["dates"])
+        return {"events": [ev(params["dates"], True)]}
+
+    monkeypatch.setattr(espn, "http_get", fake_get)
+    today = dt.date(2026, 10, 14)
+    win = [(dt.date(2026, 9, 1), dt.date(2026, 10, 14))]
+    g = espn.update_games("soccer", "x.1", today, windows=win, max_requests=10)
+    assert len(calls) == 10 and min(calls) == "20261005"                  # newest days first
+    calls.clear()
+    espn.update_games("soccer", "x.1", today, windows=win, max_requests=1000)
+    assert "20261008" not in calls and "20261013" in calls                # done days are skipped, recent ones refreshed
+    assert len(g) == 10
 
 def test_newcomer_prior():
     row = lambda h, a: {"HomeTeam": h, "AwayTeam": a}

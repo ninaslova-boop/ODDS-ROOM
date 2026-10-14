@@ -9,12 +9,13 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import re
-import time
+from concurrent.futures import ThreadPoolExecutor
 
 from .util import CACHE_DIR, american_to_decimal, http_get, is_quick, read_json, to_float, write_json
 
 log = logging.getLogger("pipeline.espn")
 BASE = "https://site.api.espn.com/apis/site/v2/sports"
+WORKERS = 8
 
 
 def parse_event(ev: dict) -> dict | None:
@@ -110,6 +111,44 @@ def parse_odds(odds_list: list, home_abbr: str | None, away_abbr: str | None) ->
     return {k: v for k, v in res.items() if v is not None}
 
 
+def _fetch_day(sport: str, league: str, d: dt.date) -> list[dict]:
+    j = http_get(f"{BASE}/{sport}/{league}/scoreboard", params={"dates": d.strftime("%Y%m%d"), "limit": 300})
+    return [e for e in (parse_event(ev) for ev in j.get("events", [])) if e]
+
+
+def fetch_days(sport: str, league: str, days: list[dt.date], workers: int = WORKERS) -> tuple[list[dict], set[dt.date]]:
+    """Fetch single days in parallel (ESPN rejects date ranges with 400).
+    Returns (games, days that failed)."""
+    games, failed = [], set()
+
+    def one(d):
+        try:
+            return d, _fetch_day(sport, league, d)
+        except Exception as e:  # noqa: BLE001
+            log.info("espn %s %s: %s", league, d, e)
+            return d, None
+
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        for d, got in ex.map(one, days):
+            if got is None:
+                failed.add(d)
+            else:
+                games += got
+    return games, failed
+
+
+def _fetch_range(sport: str, league: str, d1: dt.date, d2: dt.date) -> tuple[list[dict], int, bool]:
+    """All games from d1 to d2. Returns (games, number of requests, True when every day was fetched).
+    Raises when a single requested day fails (so a probe of an unknown league fails)."""
+    days = [d1 + dt.timedelta(days=i) for i in range((d2 - d1).days + 1)]
+    if len(days) == 1:
+        return _fetch_day(sport, league, d1), 1, True
+    games, failed = fetch_days(sport, league, days)
+    if len(failed) == len(days):
+        raise RuntimeError(f"ESPN {league}: no day could be fetched")
+    return games, len(days), not failed
+
+
 def _season_windows(today: dt.date, start_month: int, end_month: int) -> list[tuple[dt.date, dt.date]]:
     """Current and previous season windows (season starts in start_month, ends in end_month next year)."""
     y = today.year if today.month >= start_month else today.year - 1
@@ -118,89 +157,44 @@ def _season_windows(today: dt.date, start_month: int, end_month: int) -> list[tu
     return [prev, cur]
 
 
-def _fetch_range(sport: str, league: str, d1: dt.date, d2: dt.date) -> tuple[list[dict], int, bool]:
-    """Fetch a date range. ESPN can reject long ranges (400): then split into weeks, then days.
-    Return (games, number of requests, True when every part of the range was fetched)."""
-    ds = d1.strftime("%Y%m%d") if d1 == d2 else f"{d1:%Y%m%d}-{d2:%Y%m%d}"
-    try:
-        j = http_get(f"{BASE}/{sport}/{league}/scoreboard", params={"dates": ds, "limit": 300}, retries=1 if d1 != d2 else 3)
-        return [e for e in (parse_event(ev) for ev in j.get("events", [])) if e], 1, True
-    except Exception:  # noqa: BLE001
-        if d1 == d2:
-            raise
-    span = 7 if (d2 - d1).days > 7 else 1
-    games, reqs, ok = [], 1, True
-    d = d1
-    while d <= d2:
-        e = min(d2, d + dt.timedelta(days=span - 1))
-        try:
-            g, n, part_ok = _fetch_range(sport, league, d, e)
-            games += g
-            reqs += n
-            ok = ok and part_ok
-        except Exception as ex:  # noqa: BLE001
-            log.warning("espn %s %s..%s: %s", league, d, e, ex)
-            ok = False
-        time.sleep(0.15)
-        d = e + dt.timedelta(days=1)
-    return games, reqs, ok
-
-
 def update_games(sport: str, league: str, today: dt.date, start_month: int = 10, end_month: int = 6,
                  max_requests: int = 900, windows: list[tuple[dt.date, dt.date]] | None = None) -> dict[str, dict]:
-    """Keep a disk cache of all games of the current and previous season. Return {id: game}.
-    In quick mode only the days near today are fetched; history comes from the cache."""
+    """Keep a disk cache of all games in the windows (default: current and previous season).
+    Days already complete are not fetched again; the newest missing days go first, so a long
+    history fills in over a few runs when max_requests is small.
+    In quick mode only the days near today are fetched."""
     path = CACHE_DIR / f"espn_{league}.json"
     cache = read_json(path, {"events": {}, "done": []})
     events: dict = cache["events"]
     done_days = set(cache["done"])
-    reqs = 0
     full_windows = windows or _season_windows(today, start_month, end_month)
-    windows = [(today - dt.timedelta(days=2), today + dt.timedelta(days=8))] if is_quick() else full_windows
-    for w0, w1 in windows:
+    use = [(today - dt.timedelta(days=2), today + dt.timedelta(days=8))] if is_quick() else full_windows
+    recent_from = today - dt.timedelta(days=2)
+    wanted = set()
+    for w0, w1 in use:
         d = w0
-        while d <= w1 and reqs < max_requests:
-            # month chunks for the past, single days near today
-            chunk_end = min(w1, (d.replace(day=28) + dt.timedelta(days=4)).replace(day=1) - dt.timedelta(days=1))
-            recent = chunk_end >= today - dt.timedelta(days=3)
-            days = [d + dt.timedelta(days=i) for i in range((chunk_end - d).days + 1)]
-            if not recent and all(x.isoformat() in done_days for x in days):
-                d = chunk_end + dt.timedelta(days=1)
-                continue
-            try:
-                if recent:
-                    got = []
-                    for x in days:
-                        if x.isoformat() in done_days:
-                            continue
-                        g, n, _ = _fetch_range(sport, league, x, x)
-                        got += g
-                        reqs += n
-                        time.sleep(0.15)
-                    complete = True
-                else:
-                    got, n, complete = _fetch_range(sport, league, d, chunk_end)
-                    reqs += n
-                    time.sleep(0.25)
-            except Exception as e:  # noqa: BLE001
-                log.warning("espn %s %s..%s: %s", league, d, chunk_end, e)
-                d = chunk_end + dt.timedelta(days=1)
-                continue
-            for g in got:
-                events[g["id"]] = g
-            for x in days:
-                day_games = [g for g in got if (g["d"] or "")[:10] == x.isoformat()]
-                # a day without games counts as done only when the whole range was fetched
-                if x < today - dt.timedelta(days=2) and all(g["done"] for g in day_games) \
-                        and (complete or day_games):
-                    done_days.add(x.isoformat())
-            d = chunk_end + dt.timedelta(days=1)
-    # drop games older than the oldest window
+        while d <= w1:
+            if d >= recent_from or d.isoformat() not in done_days:
+                wanted.add(d)
+            d += dt.timedelta(days=1)
+    todo = sorted(wanted, reverse=True)[:max_requests]
+    games, failed = fetch_days(sport, league, todo)
+    for g in games:
+        events[g["id"]] = g
+    by_day: dict[str, list] = {}
+    for g in games:
+        by_day.setdefault((g["d"] or "")[:10], []).append(g)
+    for d in todo:
+        if d in failed or d >= recent_from:
+            continue
+        if all(g["done"] for g in by_day.get(d.isoformat(), [])):
+            done_days.add(d.isoformat())
     oldest = min(w[0] for w in full_windows).isoformat()
     events = {k: v for k, v in events.items() if (v.get("d") or "")[:10] >= oldest}
     done_days = {x for x in done_days if x >= oldest}
     write_json(path, {"events": events, "done": sorted(done_days)})
-    log.info("espn %s: %d games cached, %d requests", league, len(events), reqs)
+    log.info("espn %s: %d games cached, %d days fetched (%d failed), %d days still missing", league, len(events),
+             len(todo), len(failed), max(0, len(wanted) - len(todo)))
     return events
 
 

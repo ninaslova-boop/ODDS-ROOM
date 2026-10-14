@@ -36,7 +36,7 @@ jobs:
       - run: pip install -r requirements.txt
 
       - name: Backtest
-        run: python -m pipeline.backtest --part "${{ github.event.inputs.part || 'nhl,e1,cups' }}" 2>&1 | grep -v " INFO "
+        run: python -m pipeline.backtest --part "${{ github.event.inputs.part || 'nhl,e1,cups' }}" 2>&1 | grep --line-buffered -v " INFO "
 
       - name: Report
         if: always()

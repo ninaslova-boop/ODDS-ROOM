@@ -8,6 +8,7 @@ import logging
 import math
 import os
 import re
+import threading
 import time
 import unicodedata
 from pathlib import Path
@@ -21,8 +22,16 @@ OUT_DIR = ROOT / "app" / "data"
 CACHE_DIR = ROOT / "data" / "cache"
 
 UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-_session = requests.Session()
-_session.headers.update({"User-Agent": UA, "Accept": "*/*"})
+_local = threading.local()
+
+
+def _sess() -> requests.Session:
+    """One HTTP session per thread (ESPN days are fetched in parallel)."""
+    s = getattr(_local, "s", None)
+    if s is None:
+        s = _local.s = requests.Session()
+        s.headers.update({"User-Agent": UA, "Accept": "*/*"})
+    return s
 
 
 def http_get(url: str, params: dict | None = None, headers: dict | None = None,
@@ -31,7 +40,7 @@ def http_get(url: str, params: dict | None = None, headers: dict | None = None,
     last = None
     for attempt in range(retries):
         try:
-            r = _session.get(url, params=params, headers=headers, timeout=timeout)
+            r = _sess().get(url, params=params, headers=headers, timeout=timeout)
             if r.status_code == 429:
                 time.sleep(5 * (attempt + 1))
                 last = RuntimeError(f"429 from {url}")

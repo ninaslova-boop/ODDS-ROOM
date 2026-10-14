@@ -186,7 +186,8 @@ def fit_espn_domestic(today: dt.date, days: int = DOMESTIC_HISTORY_DAYS,
                     continue
             else:
                 espn._fetch_range("soccer", slug, today - dt.timedelta(days=6), today)   # probe: is the slug served?
-                games = espn.update_games("soccer", slug, today, windows=_windows(today, days))
+                # the history fills in over a few full runs (150 days per league per run)
+                games = espn.update_games("soccer", slug, today, windows=_windows(today, days), max_requests=150)
         except Exception as e:  # noqa: BLE001
             errors.append(f"ESPN {slug}: {e}")
             continue
