@@ -291,7 +291,8 @@ def test_cup_priors_use_domestic_rating_and_league_strength():
     k = 0.8
     prior, mapped = soccer_espn.cup_priors(["T1", "Unknown FC"], {"E0": r}, k=k)
     assert mapped["T1"] == ("E0", "T1")
-    assert prior["T1"][0] == pytest.approx(k * r.att["T1"] + soccer_espn.LEAGUE_STRENGTH["E0"] / 2)
+    g = soccer_espn.STRENGTH_SCALE
+    assert prior["T1"][0] == pytest.approx(k * r.att["T1"] + g * soccer_espn.LEAGUE_STRENGTH["E0"] / 2)
     assert prior["Unknown FC"][0] < 0 < prior["Unknown FC"][1]
 
 
@@ -304,9 +305,10 @@ def test_cup_priors_espn_domestic_league():
     best = max(nor.att, key=nor.att.get)
     prior, mapped = soccer_espn.cup_priors([best, "Nobody FC"], {}, {"NOR": nor}, k=1.0)
     assert mapped[best] == ("NOR", best)
-    s = soccer_espn.LEAGUE_STRENGTH["NOR"]
+    g = soccer_espn.STRENGTH_SCALE
+    s = soccer_espn.LEAGUE_STRENGTH["NOR"] * g
     assert prior[best][0] == pytest.approx(nor.att[best] + s / 2)
-    assert prior["Nobody FC"][0] == pytest.approx(soccer_espn.UNKNOWN_STRENGTH / 2)
+    assert prior["Nobody FC"][0] == pytest.approx(g * soccer_espn.UNKNOWN_STRENGTH / 2)
     assert soccer_espn.UNKNOWN_STRENGTH < s < soccer_espn.LEAGUE_STRENGTH["E0"]
 
 
@@ -442,7 +444,8 @@ def test_market_small_gap_not_flagged():
 
 def test_cup_priors_club_country_without_espn_league():
     prior, mapped = soccer_espn.cup_priors(["Slovan Bratislava", "Some Village FC"], {}, {})
-    s = soccer_espn.LEAGUE_STRENGTH["SVK"]
+    g = soccer_espn.STRENGTH_SCALE
+    s = soccer_espn.LEAGUE_STRENGTH["SVK"] * g
     assert prior["Slovan Bratislava"] == pytest.approx((s / 2, -s / 2))
-    assert prior["Some Village FC"][0] == pytest.approx(soccer_espn.UNKNOWN_STRENGTH / 2)
+    assert prior["Some Village FC"][0] == pytest.approx(g * soccer_espn.UNKNOWN_STRENGTH / 2)
     assert "Slovan Bratislava" not in mapped          # no domestic rating, only the league strength
