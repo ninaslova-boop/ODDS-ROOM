@@ -2,14 +2,21 @@ name: Update data
 
 on:
   schedule:
-    # 05:40, 11:40 and 17:40 UTC (cron runs only on the default branch)
-    - cron: "40 5,11,17 * * *"
+    # every 30 minutes; a full refresh runs when the last one is older than 5.5 hours,
+    # the other runs only refresh fixtures near today, lineups and injuries
+    - cron: "*/30 * * * *"
   workflow_dispatch:
+    inputs:
+      mode:
+        description: "auto, full or quick"
+        default: "auto"
   push:
-    branches: ["claude/**", "main"]
+    branches: ["main"]
     paths:
       - "pipeline/**"
-      - "tests/**"
+      - "app/*.html"
+      - "app/*.js"
+      - "app/*.css"
       - "requirements.txt"
       - ".github/workflows/update-data.yml"
 
@@ -17,15 +24,24 @@ permissions:
   contents: write
 
 concurrency:
-  group: update-data-${{ github.ref }}
+  group: update-data
   cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Restore source cache
+        uses: actions/cache/restore@v4
+        with:
+          path: data/cache
+          key: odds-cache-${{ github.run_id }}
+          restore-keys: odds-cache-
 
       - uses: actions/setup-python@v5
         with:
@@ -41,23 +57,49 @@ jobs:
       - name: Build data
         env:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
-        run: python -m pipeline.build
+          API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
+        run: |
+          python -m pipeline.build --mode "${{ github.event.inputs.mode || 'auto' }}"
+          echo "MODE=$(cat data/cache/last_mode.txt)" >> "$GITHUB_ENV"
 
-      - name: Show source status
-        run: cat app/data/meta.json | head -c 4000
+      - name: Save source cache (full runs)
+        if: env.MODE == 'full'
+        uses: actions/cache/save@v4
+        with:
+          path: data/cache
+          key: odds-cache-${{ github.run_id }}
 
-      - name: Commit data
+      - name: Publish site to gh-pages
+        run: |
+          rm -rf /tmp/site && mkdir -p /tmp/site
+          cp index.html start.html /tmp/site/ 2>/dev/null || true
+          cp -r app /tmp/site/app
+          touch /tmp/site/.nojekyll
+          cd /tmp/site
+          git init -q -b gh-pages
+          git config user.name "odds-room-bot"
+          git config user.email "odds-room-bot@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Site $(date -u +'%Y-%m-%d %H:%M') UTC (${MODE})"
+          git push -q --force "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" gh-pages
+
+      - name: Commit pick log (full runs)
+        if: env.MODE == 'full'
         run: |
           git config user.name "odds-room-bot"
           git config user.email "odds-room-bot@users.noreply.github.com"
-          git add app/data data
+          git add data/picks_log.json
           if git diff --cached --quiet; then
-            echo "No data changes"
+            echo "Pick log unchanged"
             exit 0
           fi
-          git commit -m "Update data $(date -u +'%Y-%m-%d %H:%M') UTC"
+          git commit -m "Pick log $(date -u +'%Y-%m-%d %H:%M') UTC"
           for i in 1 2 3 4; do
-            git pull --rebase -X theirs origin "${GITHUB_REF_NAME}" && git push origin "HEAD:${GITHUB_REF_NAME}" && exit 0
+            git pull --rebase -X theirs origin main && git push origin HEAD:main && exit 0
             sleep $((i * 5))
           done
           exit 1
+
+      - name: Source status
+        if: always()
+        run: python -c "import json; m=json.load(open('app/data/meta.json')); print(m['mode'], m['status']); print('\n'.join(m['errors'][:40]))" || true

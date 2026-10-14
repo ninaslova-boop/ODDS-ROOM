@@ -115,6 +115,12 @@ ALIASES = {
     "hoffenheim": "hoffenheim", "mainz": "mainz 05", "rb leipzig": "leipzig", "heidenheim": "heidenheim",
     "paris sg": "paris saint germain", "psg": "paris saint germain", "st etienne": "saint etienne",
     "marseille": "marseille", "olympique marseille": "marseille", "olympique lyonnais": "lyon",
+    # ESPN UEFA names -> football-data.co.uk names
+    "sporting cp": "sp lisbon", "sporting lisbon": "sp lisbon", "sporting": "sp lisbon", "braga": "sp braga",
+    "union st gilloise": "st gilloise", "union saint gilloise": "st gilloise", "olympiacos": "olympiakos",
+    "psv": "psv eindhoven", "az": "az alkmaar", "twente enschede": "twente", "fenerbahce sk": "fenerbahce",
+    "besiktas jk": "besiktas", "red star belgrade": "crvena zvezda", "lille osc": "lille",
+    "losc lille": "lille", "nice": "nice", "rennes": "rennes", "stade rennais": "rennes",
 }
 
 
@@ -168,3 +174,34 @@ def to_float(x) -> float | None:
 
 def setup_logging():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
+
+# ---------- run mode and HTTP cache ----------
+# "full": refresh every source. "quick" (the 30-minute runs): refresh only fast-changing data
+# (fixtures near today, lineups, injuries) and reuse cached copies of the heavy sources.
+RUN = {"mode": "full"}
+
+
+def is_quick() -> bool:
+    return RUN["mode"] == "quick"
+
+
+def cached_get(url: str, params: dict | None = None, headers: dict | None = None, as_json: bool = True,
+               always_fresh: bool = False):
+    """GET with a disk copy. Quick mode returns the copy when there is one.
+    When a fresh download fails, the last good copy is used instead."""
+    import hashlib
+    key = hashlib.sha1((url + json.dumps(params or {}, sort_keys=True)).encode()).hexdigest()[:20]
+    path = CACHE_DIR / "http" / f"{key}.json"
+    old = read_json(path)
+    if old is not None and is_quick() and not always_fresh:
+        return old["body"]
+    try:
+        body = http_get(url, params=params, headers=headers, as_json=as_json)
+    except Exception:
+        if old is not None:
+            log.warning("using cached copy of %s", url)
+            return old["body"]
+        raise
+    write_json(path, {"url": url, "t": iso(now_utc()), "body": body})
+    return body

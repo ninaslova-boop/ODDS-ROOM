@@ -180,3 +180,28 @@ def stats(picks: list[dict], tracked: list[list]) -> dict:
     brier = round(sum((p - y) ** 2 for p, y in pts) / len(pts), 4) if pts else None
     return {"all": _summary(picks), "by_sport": by_sport, "by_month": by_month,
             "calibration": buckets, "tracked_n": len(pts), "tracked_brier": brier}
+
+
+def live_alerts(picks_list: list[dict], matches: list[dict]):
+    """Lineup Alert for open picks: compare the logged probability with the current one.
+    yellow = still value but the model is less sure, red = no value any more (pick pulled)."""
+    by_id = {m["id"]: m for m in matches}
+    for p in picks_list:
+        p.pop("alert", None)
+        if p.get("status") != "open":
+            continue
+        m = by_id.get(p["match"])
+        if not m:
+            continue
+        cur = next((k for k in m["markets"] if (k["stat"], k["scope"], k["kind"], k.get("line")) ==
+                    (p["stat"], p["scope"], p["kind"], p.get("line"))), None)
+        if not cur:
+            continue
+        p["p_now"] = cur["p"]
+        drop = p["p"] - cur["p"]
+        why = (m.get("adj") or {}).get("missing") or {}
+        names = ", ".join(why.get("home", []) + why.get("away", []))[:120]
+        if cur["p"] * p["odds"] - 1 < 0:
+            p["alert"] = {"level": "red", "text": f"Model zdaj {round(cur['p'] * 100)} %: ni več value. {names}".strip()}
+        elif drop >= 0.03:
+            p["alert"] = {"level": "yellow", "text": f"Model zdaj {round(cur['p'] * 100)} %. {names}".strip()}
