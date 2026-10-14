@@ -309,3 +309,21 @@ def test_lineup_with_unmatched_names_is_ignored():
               "away": {"xi": [{"name": f"Y{i}"} for i in range(11)], "bench": []}}
     assert adjust.apply([m], {"football": [a, b]}, {m["id"]: {"lineup": lineup}}) == 0
     assert a["props"] and a["next"]["status"] == "ok"
+
+
+def test_espn_fixture_fallback(monkeypatch):
+    events = [
+        {"id": "1", "d": "2026-10-18T14:00Z", "h": "Manchester United", "a": "Brighton & Hove Albion", "done": False,
+         "odds": {"ml_home": 2.1, "ml_draw": 3.4, "ml_away": 3.3, "total": 2.5, "over": 1.8, "under": 2.0}},
+        {"id": "2", "d": "2026-10-18T16:30Z", "h": "Arsenal", "a": "Fulham", "done": False},
+        {"id": "3", "d": "2026-10-18T16:30Z", "h": "Unknown Town", "a": "Fulham", "done": False},
+    ]
+    monkeypatch.setattr(football.espn, "_fetch_range", lambda *a, **k: (events, 1, True))
+    rows, unmatched = football.espn_fixtures("E0", ["Man United", "Brighton", "Arsenal", "Fulham"],
+                                             dt.date(2026, 10, 14), 7)
+    assert [(r["HomeTeam"], r["AwayTeam"]) for r in rows] == [("Man United", "Brighton"), ("Arsenal", "Fulham")]
+    assert unmatched == ["Unknown Town - Fulham"]
+    assert football.odds_from_row(rows[0])["1"] == 2.1 and football.odds_from_row(rows[0])["over2.5"] == 1.8
+    csv_row = {"Div": "E0", "HomeTeam": "Arsenal", "AwayTeam": "Fulham", "_date": dt.date(2026, 10, 18), "AvgH": "1.4"}
+    merged = football.merge_fixtures([csv_row], rows)
+    assert len(merged) == 2 and merged[0]["_espn"]["id"] == "2" and merged[0]["AvgH"] == "1.4"

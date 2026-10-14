@@ -11,8 +11,8 @@ import io
 import logging
 import math
 
-from . import models
-from .util import CACHE_DIR, cached_get, to_float
+from . import espn, models
+from .util import CACHE_DIR, cached_get, match_name, parse_iso, to_float
 
 log = logging.getLogger("pipeline.football")
 
@@ -26,6 +26,51 @@ LEAGUES = {
 }
 
 DC_RHO = -0.06
+
+# ESPN league slugs, used for fixtures that football-data.co.uk has not published yet and for lineups
+ESPN_SLUG = {
+    "E0": "eng.1", "E1": "eng.2", "SP1": "esp.1", "SP2": "esp.2", "I1": "ita.1", "I2": "ita.2",
+    "D1": "ger.1", "D2": "ger.2", "F1": "fra.1", "F2": "fra.2", "N1": "ned.1", "P1": "por.1",
+    "B1": "bel.1", "T1": "tur.1", "SC0": "sco.1", "G1": "gre.1",
+}
+
+
+def espn_fixtures(div: str, teams: list[str], today: dt.date, horizon_days: int) -> tuple[list[dict], list[str]]:
+    """Upcoming fixtures of a division from ESPN, as football-data.co.uk-like rows (team names mapped)."""
+    slug = ESPN_SLUG.get(div)
+    if not slug:
+        return [], []
+    games, _, _ = espn._fetch_range("soccer", slug, today, today + dt.timedelta(days=horizon_days))
+    rows, unmatched = [], []
+    for g in games:
+        if g.get("done") or not g.get("d"):
+            continue
+        h = match_name(g["h"], teams)
+        a = match_name(g["a"], teams)
+        if not h or not a or h == a:
+            unmatched.append(f"{g['h']} - {g['a']}")
+            continue
+        o = g.get("odds", {})
+        row = {"Div": div, "HomeTeam": h, "AwayTeam": a, "_date": parse_iso(g["d"]).date(),
+               "_kickoff": parse_iso(g["d"]).strftime("%Y-%m-%dT%H:%M:%SZ"), "_espn": {"slug": slug, "id": g["id"]},
+               "AvgH": o.get("ml_home"), "AvgD": o.get("ml_draw"), "AvgA": o.get("ml_away")}
+        if o.get("total") == 2.5:
+            row["Avg>2.5"], row["Avg<2.5"] = o.get("over"), o.get("under")
+        rows.append(row)
+    return rows, unmatched
+
+
+def merge_fixtures(csv_rows: list[dict], espn_rows: list[dict]) -> list[dict]:
+    """football-data.co.uk rows win (better odds); ESPN adds missing games and its event id."""
+    out = list(csv_rows)
+    for e in espn_rows:
+        same = next((r for r in out if r["HomeTeam"] == e["HomeTeam"] and r["AwayTeam"] == e["AwayTeam"]
+                     and abs((r["_date"] - e["_date"]).days) <= 1), None)
+        if same:
+            same.setdefault("_espn", e["_espn"])
+        else:
+            out.append(e)
+    return out
 
 
 def season_code(d: dt.date) -> str:
@@ -260,6 +305,13 @@ def build(today: dt.date, horizon_days: int = 7) -> dict:
         team_stats[div] = {}
         fixtures = [r for r in fx_rows if r.get("Div") == div
                     and today <= r["_date"] <= today + dt.timedelta(days=horizon_days)]
+        try:
+            e_rows, unmatched = espn_fixtures(div, rg.teams, today, horizon_days)
+            fixtures = merge_fixtures(fixtures, e_rows)
+            if unmatched:
+                errors.append(f"{div}: ESPN names not matched: {', '.join(unmatched[:4])}")
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"{div} ESPN fixtures: {e}")
         for r in fixtures:
             h, a = r["HomeTeam"], r["AwayTeam"]
             if h not in rg.att or a not in rg.att:
@@ -285,14 +337,14 @@ def build(today: dt.date, horizon_days: int = 7) -> dict:
             odds = odds_from_row(r)
             attach_odds(mk, odds)
             dist = models.total_distribution(M)
-            kickoff = kickoff_iso(r)
+            kickoff = r.get("_kickoff") or kickoff_iso(r)
             for t in (h, a):
                 if t not in team_stats[div]:
                     team_stats[div][t] = team_season_stats(cur, t)
             matches.append({
                 "id": match_key(div, r["_date"], h, a),
                 "sport": "football", "league": div, "league_name": LEAGUES[div],
-                "kickoff": kickoff, "home": h, "away": a,
+                "kickoff": kickoff, "home": h, "away": a, **({"espn": r["_espn"]} if r.get("_espn") else {}),
                 "exp": [round(lh, 2), round(la, 2)],
                 "extra": extra,
                 "top_scores": models.top_scores(M),

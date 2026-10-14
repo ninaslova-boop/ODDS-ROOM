@@ -16,15 +16,11 @@ import logging
 import os
 
 from . import espn
+from .football import ESPN_SLUG
 from .util import cached_get, http_get, match_name, norm_name, now_utc, parse_iso
 
 log = logging.getLogger("pipeline.availability")
 
-ESPN_SLUG = {
-    "E0": "eng.1", "E1": "eng.2", "SP1": "esp.1", "SP2": "esp.2", "I1": "ita.1", "I2": "ita.2",
-    "D1": "ger.1", "D2": "ger.2", "F1": "fra.1", "F2": "fra.2", "N1": "ned.1", "P1": "por.1",
-    "B1": "bel.1", "T1": "tur.1", "SC0": "sco.1", "G1": "gre.1",
-}
 LINEUP_BEFORE_MIN = 100   # ESPN publishes lineups about 60 minutes before kick-off
 
 
