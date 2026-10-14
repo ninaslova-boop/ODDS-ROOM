@@ -154,8 +154,10 @@ def cups(today: dt.date):
 
     configs = {"staro (ridge 3, k 1, samo FD lige, neznani -0.30)": dict(ridge=3.0, k=1.0, strengths=OLD_STRENGTH,
                                                                        unknown=-0.30, espn=False)}
-    for rg in (3.0, 8.0, 12.0, 15.0):
-        configs[f"novo ridge {rg:g}, k 0.8"] = dict(ridge=rg, k=0.8, espn=True)
+    configs["novo jakosti lig, staro ridge 3, k 1"] = dict(ridge=3.0, k=1.0, espn=True)
+    for rg in (8.0, 12.0, 15.0):
+        for k in (0.6, 0.8):
+            configs[f"novo ridge {rg:g}, k {k}"] = dict(ridge=rg, k=k, espn=True)
     scores = {name: Score() for name in configs}
     mkt = Score()
     mkt_pairs = defaultdict(Score)       # each config on the games that have market prices
@@ -201,28 +203,17 @@ def cups(today: dt.date):
             say(sc.row(name))
     else:
         say("Za pretekle pokalne tekme v predpomnilniku ni kvot, zato tržne reference ni.")
-    best = min((n for n in scores if n.startswith("novo")), key=lambda n: scores[n].ll / max(1, scores[n].n))
+    def total(n):
+        sc_ = scores[n]
+        return sc_.ll / max(1, sc_.n) + (sc_.ll_ou / sc_.n_ou if sc_.n_ou else 0)
+    best = min((n for n in scores if n.startswith("novo ridge")), key=total)
     say()
-    say(f"Najboljši ridge (k 0.8): **{best}**")
-    # second step: prior scale k at the best ridge
-    rg = configs[best]["ridge"]
-    ks = {}
-    for k in (0.6, 0.8, 1.0):
-        sc = Score()
-        for t, train, test, goal_ratings, espn_ratings, teams in per_cp:
-            r, prior, _ = soccer_espn.fit_cup_model(train, teams, t, goal_ratings, espn_ratings, ridge=rg, k=k)
-            for x in test:
-                sc.add(probs(*soccer_espn.predict_cup(r, prior, x["home"], x["away"], x.get("neutral", False))),
-                       x["hc"], x["ac"])
-        ks[k] = sc
+    say("Skupna ocena = 1X2 log-loss + O/U 2.5 log-loss (nižje je bolje):")
+    for n in scores:
+        say(f"- {n}: {total(n):.4f}")
     say()
-    say(f"Delež domače ocene k pri ridge {rg:g}:")
-    say(HEAD)
-    for k, sc in ks.items():
-        say(sc.row(f"k {k}"))
-    best_k = min(ks, key=lambda k: ks[k].ll / max(1, ks[k].n))
-    say()
-    say(f"Priporočeno: ridge {rg:g}, k {best_k}")
+    say(f"Najboljša nastavitev: **{best}**")
+    rg, best_k = configs[best]["ridge"], configs[best]["k"]
     return {"ridge": rg, "k": best_k}
 
 
@@ -243,7 +234,14 @@ def e1(today: dt.date, div: str = "E1"):
         "ridge 10": dict(ridge=10.0),
     }
     sc = {n: Score() for n in variants}
-    pin_close, pin_open = Score(), Score()
+    pin_close, pin_open, ref_avg = Score(), Score(), Score()
+    say("Pokritost s kvotami po sezonah (vrstice z rezultatom):")
+    say("| sezona | tekme | Pinnacle ob objavi (PSH) | Pinnacle zaključne (PSCH) | povprečje zaključne (AvgCH) |\n|---|---|---|---|---|")
+    for c in fd.codes:
+        rows = [r for r in fd.rows[div].get(c, []) if r.get("FTHG")]
+        cnt = lambda col: sum(1 for r in rows if (football.to_float(r.get(col)) or 0) > 1)
+        say(f"| 20{c[:2]}/{c[2:]} | {len(rows)} | {cnt('PSH')} | {cnt('PSCH')} | {cnt('AvgCH')} |")
+    say()
     bias = defaultdict(lambda: defaultdict(list))   # variant -> season -> list of (model - pinnacle) for 1, X, 2
     actual = defaultdict(lambda: [0, 0, 0, 0])      # season -> counts 1, X, 2, n
     rows_all = []
@@ -259,11 +257,19 @@ def e1(today: dt.date, div: str = "E1"):
             pc = market.no_vig(football.pinnacle_from_row(r, closing=True), ("1", "X", "2"))
             po = market.no_vig(football.pinnacle_from_row(r), ("1", "X", "2"))
             if not pc:
-                continue
+                # no Pinnacle in the file: use the closing market average (or the average) without margin
+                avg = {"1": football.to_float(r.get("AvgCH")) or football.to_float(r.get("AvgH")),
+                       "X": football.to_float(r.get("AvgCD")) or football.to_float(r.get("AvgD")),
+                       "2": football.to_float(r.get("AvgCA")) or football.to_float(r.get("AvgA"))}
+                pc = market.no_vig(avg, ("1", "X", "2"))
+                if not pc:
+                    continue
+                ref_avg.add(pc, int(float(r["FTHG"])), int(float(r["FTAG"])))
             ouc = market.no_vig(football.pinnacle_from_row(r, closing=True), ("over2.5", "under2.5"))
             if ouc:
                 pc["over2.5"] = ouc["over2.5"]
-            pin_close.add(pc, hg, ag)
+            if football.pinnacle_from_row(r, closing=True):
+                pin_close.add(pc, hg, ag)
             if po:
                 pin_open.add(po, hg, ag)
             o = 0 if hg > ag else (1 if hg == ag else 2)
@@ -277,10 +283,11 @@ def e1(today: dt.date, div: str = "E1"):
     say(HEAD)
     say(pin_close.row("Pinnacle zaključne kvote (brez marže)"))
     say(pin_open.row("Pinnacle kvote ob objavi (brez marže)"))
+    say(ref_avg.row("povprečje stavnic, zaključne (brez marže), kjer Pinnacla ni"))
     for n, s in sc.items():
         say(s.row(n))
     say()
-    say("Pristranskost: povprečna razlika model − Pinnacle (zaključne), v odstotnih točkah:")
+    say("Pristranskost: povprečna razlika model − trg (Pinnacle zaključne, sicer povprečje zaključnih), v odstotnih točkah:")
     say("| model | sezona | n | domači | remi | gostje | dejanski delež zmag domačih |\n|---|---|---|---|---|---|---|")
     for n in variants:
         for c in fd.codes:

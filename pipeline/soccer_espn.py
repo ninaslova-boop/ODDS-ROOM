@@ -32,7 +32,33 @@ UEFA_COEF = {
     "BEL": 52.0, "CZE": 46.0, "TUR": 42.0, "GRE": 37.0, "POL": 36.0, "NOR": 34.5, "DEN": 33.5,
     "AUT": 32.0, "SUI": 31.0, "SCO": 30.5, "ISR": 28.0, "CYP": 27.0, "SWE": 25.5, "CRO": 25.0,
     "SRB": 23.5, "UKR": 22.0, "HUN": 21.5, "SVN": 20.5, "ROU": 20.0, "SVK": 19.5, "BUL": 18.5,
-    "AZE": 18.0, "KAZ": 15.0, "IRL": 11.0,
+    "AZE": 18.0, "KAZ": 15.0, "IRL": 11.0, "BLR": 9.0, "MDA": 9.0, "BIH": 9.0, "ISL": 9.0, "FIN": 9.0,
+    "GEO": 10.0, "ARM": 8.0, "KOS": 8.0, "LVA": 8.0, "MKD": 7.0, "LTU": 7.0, "FRO": 7.0, "ALB": 7.0,
+    "MNE": 6.0, "LUX": 6.0, "MLT": 6.0, "GIB": 6.0, "NIR": 6.0, "WAL": 5.0, "EST": 5.0, "AND": 4.0,
+}
+
+# Country of clubs that often play in UEFA competitions but whose league ESPN does not serve.
+# These get the strength of their league (no domestic rating) instead of the small-nation default.
+CLUB_COUNTRY = {
+    "Legia Warsaw": "POL", "Lech Poznan": "POL", "Jagiellonia Bialystok": "POL", "Rakow Czestochowa": "POL",
+    "Pogon Szczecin": "POL", "Gornik Zabrze": "POL", "Cracovia": "POL",
+    "Dinamo Zagreb": "CRO", "Hajduk Split": "CRO", "HNK Rijeka": "CRO", "Osijek": "CRO", "Varazdin": "CRO",
+    "Red Star Belgrade": "SRB", "Crvena Zvezda": "SRB", "Partizan": "SRB", "TSC Backa Topola": "SRB",
+    "Vojvodina": "SRB", "Shakhtar Donetsk": "UKR", "Dynamo Kyiv": "UKR", "Polissya Zhytomyr": "UKR",
+    "Zorya Luhansk": "UKR", "Celje": "SVN", "Olimpija Ljubljana": "SVN", "Maribor": "SVN",
+    "Ferencvaros": "HUN", "Puskas Akademia": "HUN", "Paksi": "HUN", "Gyori ETO": "HUN",
+    "Ludogorets Razgrad": "BUL", "Levski Sofia": "BUL", "CSKA Sofia": "BUL", "Cherno More": "BUL",
+    "Slovan Bratislava": "SVK", "Spartak Trnava": "SVK", "DAC Dunajska Streda": "SVK", "Zilina": "SVK",
+    "Qarabag": "AZE", "Sabah": "AZE", "Zira": "AZE", "Neftchi Baku": "AZE",
+    "Astana": "KAZ", "Kairat Almaty": "KAZ", "Ordabasy": "KAZ", "Aktobe": "KAZ", "Tobol": "KAZ",
+    "Sheriff Tiraspol": "MDA", "Petrocub": "MDA", "Zrinjski Mostar": "BIH", "Borac Banja Luka": "BIH",
+    "Breidablik": "ISL", "Vikingur Reykjavik": "ISL", "HJK Helsinki": "FIN", "KuPS": "FIN", "SJK": "FIN",
+    "Dinamo Tbilisi": "GEO", "Iberia 1999": "GEO", "Pyunik": "ARM", "Noah": "ARM", "Drita": "KOS",
+    "Ballkani": "KOS", "Shkendija": "MKD", "RFS": "LVA", "Riga FC": "LVA", "Zalgiris Vilnius": "LTU",
+    "KI Klaksvik": "FRO", "Egnatia": "ALB", "Partizani": "ALB", "Buducnost Podgorica": "MNE",
+    "Differdange": "LUX", "Hamrun Spartans": "MLT", "Lincoln Red Imps": "GIB", "Larne": "NIR",
+    "Linfield": "NIR", "The New Saints": "WAL", "FCI Levadia": "EST", "Flora Tallinn": "EST",
+    "Dinamo Minsk": "BLR", "BATE Borisov": "BLR",
 }
 
 
@@ -58,9 +84,10 @@ ESPN_DOMESTIC = {
     "SVN": "svn.1", "ROU": "rou.1", "HUN": "hun.1", "BUL": "bul.1", "SVK": "svk.1", "AZE": "aze.1",
     "KAZ": "kaz.1", "IRL": "irl.1",
 }
-for _c in ESPN_DOMESTIC:
-    LEAGUE_STRENGTH[_c] = strength_from_coef(UEFA_COEF[_c])
-UNKNOWN_STRENGTH = strength_from_coef(13.0)     # club from a league we do not read (small nations)
+for _c in UEFA_COEF:
+    if _c not in ("ENG", "ITA", "ESP", "GER", "FRA", "NED", "POR", "BEL", "TUR", "GRE", "SCO"):
+        LEAGUE_STRENGTH[_c] = strength_from_coef(UEFA_COEF[_c])
+UNKNOWN_STRENGTH = strength_from_coef(18.0)     # club from a league we do not know at all
 
 # UEFA model settings (chosen by pipeline/backtest.py, see README)
 CUP_RIDGE = 12.0          # pull towards the domestic prior; higher = cup results move it less
@@ -146,7 +173,9 @@ def cup_priors(teams: list[str], goal_ratings: dict, espn_ratings: dict | None =
             div, dom = espn_lookup[t], t
             r = espn_ratings[div]
         else:
-            prior[t] = (unknown / 2, -unknown / 2)
+            club = match_name(t, list(CLUB_COUNTRY), cutoff=0.86)
+            s = strengths.get(CLUB_COUNTRY[club], unknown) if club else unknown
+            prior[t] = (s / 2, -s / 2)
             continue
         s = strengths.get(div, unknown)
         prior[t] = (k * r.att.get(dom, 0) + s / 2, k * r.dfn.get(dom, 0) - s / 2)

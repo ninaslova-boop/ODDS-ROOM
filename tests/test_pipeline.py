@@ -438,3 +438,11 @@ def test_market_small_gap_not_flagged():
     st = market.apply([m], adjust._rebuild_football)
     assert st["flagged"] == 0 and not any(x.get("unreliable") for x in m["markets"])
     assert m["market_ref"]["gap_1x2"] < 0.01
+
+
+def test_cup_priors_club_country_without_espn_league():
+    prior, mapped = soccer_espn.cup_priors(["Slovan Bratislava", "Some Village FC"], {}, {})
+    s = soccer_espn.LEAGUE_STRENGTH["SVK"]
+    assert prior["Slovan Bratislava"] == pytest.approx((s / 2, -s / 2))
+    assert prior["Some Village FC"][0] == pytest.approx(soccer_espn.UNKNOWN_STRENGTH / 2)
+    assert "Slovan Bratislava" not in mapped          # no domestic rating, only the league strength
