@@ -87,12 +87,17 @@ def espn_injuries(sport: str, league: str) -> dict[str, list[dict]]:
             ath = inj.get("athlete") or {}
             status = (inj.get("status") or (inj.get("type") or {}).get("description") or "").strip()
             low = status.lower()
-            kind = "out" if low in ("out", "injured reserve", "ir", "suspension", "suspended") or "out" in low \
-                else ("doubt" if low in ("day-to-day", "questionable", "doubtful", "game time decision") else None)
-            if not kind:
+            # chance to play by report status; "day-to-day" players usually play
+            chance = {"day-to-day": 75, "probable": 85, "game time decision": 50, "questionable": 50,
+                      "doubtful": 20}.get(low)
+            if low in ("out", "injured reserve", "ir", "suspension", "suspended") or "out" in low:
+                kind, chance = "out", 0
+            elif chance is not None:
+                kind = "doubt"
+            else:
                 continue
             out.setdefault(tname, []).append({
-                "name": ath.get("displayName"), "status": kind, "chance": 0 if kind == "out" else 50,
+                "name": ath.get("displayName"), "status": kind, "chance": chance,
                 "reason": (inj.get("shortComment") or status)[:80], "src": "ESPN"})
     return out
 

@@ -33,6 +33,8 @@ def _status(name: str, side_info: dict, lineup_side: dict | None) -> tuple[str, 
     for a in side_info:
         if find_player(name, [a["name"]]) or (a.get("short") and find_player(name, [a["short"]])):
             chance = (a.get("chance") if a.get("chance") is not None else (0 if a["status"] == "out" else 50)) / 100
+            if chance >= 0.75:
+                return "ok", 1.0           # likely to play: no change
             return ("out" if chance <= 0.1 else "doubt"), chance
     return "ok", 1.0
 
