@@ -89,9 +89,10 @@ for _c in UEFA_COEF:
         LEAGUE_STRENGTH[_c] = strength_from_coef(UEFA_COEF[_c])
 UNKNOWN_STRENGTH = strength_from_coef(18.0)     # club from a league we do not know at all
 
-# UEFA model settings (chosen by pipeline/backtest.py, see README)
-CUP_RIDGE = 12.0          # pull towards the domestic prior; higher = cup results move it less
-PRIOR_SCALE = 0.8         # share of a domestic rating that carries over to European games
+# UEFA model settings, chosen by pipeline/backtest.py (walk-forward, 576 cup games, Oct 2026):
+# 1X2 + O/U 2.5 log-loss 1.6460 with the old settings (ridge 3, k 1) -> 1.6188 with these.
+CUP_RIDGE = 15.0          # pull towards the domestic prior; higher = cup results move it less
+PRIOR_SCALE = 0.6         # share of a domestic rating that carries over to European games
 CUP_HISTORY_DAYS = 800
 DOMESTIC_HISTORY_DAYS = 430
 DC_RHO = -0.06
