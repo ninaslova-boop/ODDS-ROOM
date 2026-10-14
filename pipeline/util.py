@@ -121,6 +121,12 @@ ALIASES = {
     "psv": "psv eindhoven", "az": "az alkmaar", "twente enschede": "twente", "fenerbahce sk": "fenerbahce",
     "besiktas jk": "besiktas", "red star belgrade": "crvena zvezda", "lille osc": "lille",
     "losc lille": "lille", "nice": "nice", "rennes": "rennes", "stade rennais": "rennes",
+    # ESPN league names -> football-data.co.uk names
+    "borussia monchengladbach": "mgladbach", "m gladbach": "mgladbach", "heart of midlothian": "hearts",
+    "erzurum bb": "erzurumspor", "amed sfk": "amedspor", "istanbul basaksehir": "buyuksehyr",
+    "basaksehir": "buyuksehyr", "goztepe": "goztep", "fatih karagumruk": "karagumruk",
+    "real sociedad b": "sociedad b", "celta vigo b": "celta b", "racing santander": "santander",
+    "sporting gijon": "sp gijon", "deportivo la coruna": "la coruna",
 }
 
 
@@ -129,6 +135,7 @@ def norm_name(s: str) -> str:
     s = s.replace("&", " and ").replace("-", " ").replace(".", " ").replace("'", "")
     s = re.sub(r"[^a-z0-9 ]", " ", s)
     s = re.sub(r"\s+", " ", s).strip()
+    s = re.sub(r" (ii|2)$", " b", s)          # reserve teams: "Real Sociedad II" = "Sociedad B"
     s = ALIASES.get(s, s)
     toks = [t for t in s.split() if t not in _STOP]
     s2 = " ".join(toks) or s
