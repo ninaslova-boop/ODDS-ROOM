@@ -222,7 +222,7 @@ def test_espn_injuries(monkeypatch):
         {"athlete": {"displayName": "Someone"}, "status": "Active"}]}]}
     monkeypatch.setattr(availability, "cached_get", lambda *a, **k: payload)
     inj = availability.espn_injuries("basketball", "nba")["Boston Celtics"]
-    assert [(i["name"], i["status"]) for i in inj] == [("Jayson Tatum", "out"), ("Derrick White", "doubt")]
+    assert [(i["name"], i["status"], i["chance"]) for i in inj] == [("Jayson Tatum", "out", 0), ("Derrick White", "doubt", 75)]
 
 
 def _fb_match():
