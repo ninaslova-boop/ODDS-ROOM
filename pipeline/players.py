@@ -15,7 +15,7 @@ import re
 import time
 
 from . import espn, models
-from .util import CACHE_DIR, http_get, match_name, parse_iso, read_json, to_float, write_json
+from .util import CACHE_DIR, cached_get, is_quick, match_name, parse_iso, read_json, to_float, write_json
 
 log = logging.getLogger("pipeline.players")
 
@@ -31,6 +31,19 @@ def prop(label: str, p: float, stat: str, line: float, kind: str = "over") -> di
     return {"label": label, "p": round(float(p), 4), "stat": stat, "line": line, "kind": kind}
 
 
+def football_props(lam_sh: float, lam_sot: float, lam_g: float, lam_a: float) -> list[dict]:
+    return [
+        prop("1+ strel", p_at_least(lam_sh, 1), "shots", 0.5),
+        prop("2+ strela", p_at_least(lam_sh, 2), "shots", 1.5),
+        prop("3+ streli", p_at_least(lam_sh, 3), "shots", 2.5),
+        prop("1+ strel v okvir", p_at_least(lam_sot, 1), "sot", 0.5),
+        prop("2+ strela v okvir", p_at_least(lam_sot, 2), "sot", 1.5),
+        prop("Da gol", 1 - math.exp(-lam_g), "goals", 0.5),
+        prop("Poda za gol", 1 - math.exp(-lam_a), "assists", 0.5),
+        prop("Gol ali podaja", 1 - math.exp(-(lam_g + lam_a)), "g+a", 0.5),
+    ]
+
+
 # --------------------------------------------------------------------------
 # Football (Understat)
 # --------------------------------------------------------------------------
@@ -41,7 +54,7 @@ def understat_players(league: str, season: int) -> list[dict]:
     """Season player table. Understat moved data behind an XHR endpoint in 2025;
     older pages embed it as JSON.parse('...'). Try both."""
     try:
-        j = http_get(f"https://understat.com/getLeagueData/{league}/{season}",
+        j = cached_get(f"https://understat.com/getLeagueData/{league}/{season}",
                      headers={"X-Requested-With": "XMLHttpRequest",
                               "Referer": f"https://understat.com/league/{league}/{season}"})
         players = j.get("players") if isinstance(j, dict) else None
@@ -49,7 +62,7 @@ def understat_players(league: str, season: int) -> list[dict]:
             return players
     except Exception as e:  # noqa: BLE001
         log.info("understat xhr %s %s: %s", league, season, e)
-    html = http_get(f"https://understat.com/league/{league}/{season}", as_json=False)
+    html = cached_get(f"https://understat.com/league/{league}/{season}", as_json=False)
     m = re.search(r"playersData\s*=\s*JSON\.parse\('(.*?)'\)", html)
     if not m:
         raise RuntimeError("understat: playersData not found")
@@ -66,9 +79,11 @@ def football_players(today: dt.date, fb: dict) -> tuple[list[dict], list[str]]:
     errors = []
     out = []
     matches_by_team: dict[tuple[str, str], dict] = {}
-    for m in fb["matches"]:
-        matches_by_team.setdefault((m["league"], m["home"]), m)
-        matches_by_team.setdefault((m["league"], m["away"]), m)
+    for m in sorted(fb["matches"] + (fb.get("extra_matches") or []), key=lambda x: x["kickoff"]):
+        for side in ("home", "away"):
+            dom = (m.get("domestic") or {}).get(side)      # UEFA cup match: [division, domestic team]
+            key = tuple(dom) if dom else (m["league"], m[side])
+            matches_by_team.setdefault(key, m)
     for div, us_league in UNDERSTAT_LEAGUES.items():
         try:
             cur = understat_players(us_league, season)
@@ -125,7 +140,7 @@ def football_players(today: dt.date, fb: dict) -> tuple[list[dict], list[str]]:
             }
             m = matches_by_team.get((div, team)) if team else None
             if m:
-                home = m["home"] == team
+                home = m["home"] == team or (m.get("domestic") or {}).get("home") == [div, team]
                 opp = m["away"] if home else m["home"]
                 tgp = team_gp.get(team, 0)
                 avail = min(1.0, games / tgp) if tgp >= 3 else 0.85
@@ -139,19 +154,12 @@ def football_players(today: dt.date, fb: dict) -> tuple[list[dict], list[str]]:
                 lam_sot = lam_sh * sot_ratio
                 lam_g = xg90 * exp_min / 90 * ratio_g
                 lam_a = xa90 * exp_min / 90 * ratio_g
+                row["avail"] = round(avail, 2)
                 row["next"] = {"match": m["id"], "opp": opp, "home": home, "kickoff": m["kickoff"],
-                               "exp_min": round(exp_min), "exp_shots": round(lam_sh, 2), "exp_sot": round(lam_sot, 2)}
+                               "exp_min": round(exp_min), "exp_shots": round(lam_sh, 2), "exp_sot": round(lam_sot, 2),
+                               "lam": [round(x, 4) for x in (lam_sh, lam_sot, lam_g, lam_a)]}
                 if avail >= 0.45:
-                    row["props"] = [
-                        prop("1+ strel", p_at_least(lam_sh, 1), "shots", 0.5),
-                        prop("2+ strela", p_at_least(lam_sh, 2), "shots", 1.5),
-                        prop("3+ streli", p_at_least(lam_sh, 3), "shots", 2.5),
-                        prop("1+ strel v okvir", p_at_least(lam_sot, 1), "sot", 0.5),
-                        prop("2+ strela v okvir", p_at_least(lam_sot, 2), "sot", 1.5),
-                        prop("Da gol", 1 - math.exp(-lam_g), "goals", 0.5),
-                        prop("Poda za gol", 1 - math.exp(-lam_a), "assists", 0.5),
-                        prop("Gol ali podaja", 1 - math.exp(-(lam_g + lam_a)), "g+a", 0.5),
-                    ]
+                    row["props"] = football_props(lam_sh, lam_sot, lam_g, lam_a)
             out.append(row)
     out.sort(key=lambda r: -r["xg90"] * min(1, r["min"] / 900))
     return out, errors
@@ -176,7 +184,7 @@ NHL_STATS = "https://api.nhle.com/stats/rest/en"
 
 def _nhl_rows(kind: str, season_id: str) -> list[dict]:
     exp = f"gameTypeId=2 and seasonId<={season_id} and seasonId>={season_id}"
-    j = http_get(f"{NHL_STATS}/{kind}/summary", params={"limit": -1, "start": 0, "cayenneExp": exp})
+    j = cached_get(f"{NHL_STATS}/{kind}/summary", params={"limit": -1, "start": 0, "cayenneExp": exp})
     return j.get("data", [])
 
 
@@ -313,6 +321,8 @@ def update_nba_boxes(games: dict[str, dict], max_new: int = 250, league: str = "
         cutoff = (newest - dt.timedelta(days=150)).isoformat()
         done = [g for g in done if g["d"][:10] >= cutoff]
     new = 0
+    if is_quick():
+        max_new = 15   # quick runs only pick up the latest finished games
     for g in done:
         if g["id"] in cache["games"] or new >= max_new:
             continue

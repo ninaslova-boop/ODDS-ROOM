@@ -12,7 +12,7 @@ import logging
 import math
 
 from . import models
-from .util import CACHE_DIR, http_get, to_float
+from .util import CACHE_DIR, cached_get, to_float
 
 log = logging.getLogger("pipeline.football")
 
@@ -77,7 +77,7 @@ def load_season(div: str, code: str, current: bool) -> list[dict]:
     if not current and cache.exists():
         text = cache.read_text(encoding="utf-8")
     else:
-        text = http_get(f"{BASE}/mmz4281/{code}/{div}.csv", as_json=False)
+        text = cached_get(f"{BASE}/mmz4281/{code}/{div}.csv", as_json=False)
         if not current:
             cache.parent.mkdir(parents=True, exist_ok=True)
             cache.write_text(text, encoding="utf-8")
@@ -219,7 +219,7 @@ def build(today: dt.date, horizon_days: int = 7) -> dict:
         log.info("football %s: %d current, %d previous rows", div, len(cur), len(old))
 
     try:
-        fx_rows = parse_csv(http_get(f"{BASE}/fixtures.csv", as_json=False))
+        fx_rows = parse_csv(cached_get(f"{BASE}/fixtures.csv", as_json=False))
     except Exception as e:  # noqa: BLE001
         fx_rows = []
         errors.append(f"fixtures.csv: {e}")

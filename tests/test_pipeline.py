@@ -191,3 +191,121 @@ def test_newcomer_prior():
     assert pr["Burnley"] == (0.15, -0.15)
     assert pr["Charlton"] == (-0.15, 0.15)
     assert "Stoke" not in pr
+
+
+# ---------------- availability / adjustments ----------------
+from pipeline import adjust, availability, soccer_espn, util  # noqa: E402
+
+
+def test_same_player():
+    sp = availability.same_player
+    assert sp("Bukayo Saka", "Saka")
+    assert sp("Erling Haaland", "Erling Braut Haaland")
+    assert sp("Kylian Mbappé", "Kylian Mbappe")
+    assert not sp("Gabriel Jesus", "Gabriel Martinelli")
+    assert availability.find_player("Saka", ["Bukayo Saka", "Declan Rice"]) == "Bukayo Saka"
+
+
+def test_parse_rosters():
+    def roster(side, n_start):
+        return {"homeAway": side, "roster": [{"athlete": {"displayName": f"{side} P{i}"}, "starter": i < n_start,
+                                              "position": {"abbreviation": "M"}} for i in range(18)]}
+    out = availability.parse_rosters({"rosters": [roster("home", 11), roster("away", 11)]})
+    assert len(out["home"]["xi"]) == 11 and len(out["away"]["bench"]) == 7
+    assert availability.parse_rosters({"rosters": [roster("home", 0), roster("away", 0)]}) is None
+
+
+def test_espn_injuries(monkeypatch):
+    payload = {"injuries": [{"displayName": "Boston Celtics", "injuries": [
+        {"athlete": {"displayName": "Jayson Tatum"}, "status": "Out", "shortComment": "Achilles"},
+        {"athlete": {"displayName": "Derrick White"}, "status": "Day-To-Day", "shortComment": "Knee"},
+        {"athlete": {"displayName": "Someone"}, "status": "Active"}]}]}
+    monkeypatch.setattr(availability, "cached_get", lambda *a, **k: payload)
+    inj = availability.espn_injuries("basketball", "nba")["Boston Celtics"]
+    assert [(i["name"], i["status"]) for i in inj] == [("Jayson Tatum", "out"), ("Derrick White", "doubt")]
+
+
+def _fb_match():
+    M = models.score_matrix(1.8, 1.0, 10, -0.06)
+    return {"id": "fb:E0:2026-10-18:Arsenal:Fulham", "sport": "football", "league": "E0", "home": "Arsenal",
+            "away": "Fulham", "kickoff": "2026-10-18T14:00:00Z", "exp": [1.8, 1.0], "odds_raw": {"1": 1.5},
+            "markets": models.goal_markets(M) + [{"stat": "corners", "scope": "total", "kind": "over", "line": 9.5,
+                                                  "p": 0.5, "label": "", "group": "Koti"}]}
+
+
+def _fb_player(name, xg90, home=True):
+    lam = [3.0, 1.0, xg90, 0.1]
+    return {"name": name, "team": "Arsenal", "league": "E0", "gp": 8, "min": 700, "xg90": xg90, "xa90": 0.1, "avail": 1.0,
+            "next": {"match": "fb:E0:2026-10-18:Arsenal:Fulham", "home": home, "exp_min": 80, "lam": lam},
+            "props": players.football_props(*lam)}
+
+
+def test_adjust_out_player_lowers_team_and_drops_props():
+    m = _fb_match()
+    star, other = _fb_player("Bukayo Saka", 0.6), _fb_player("Declan Rice", 0.1)
+    avail = {m["id"]: {"absent": {"home": [{"name": "Saka", "status": "out", "chance": 0}], "away": []}}}
+    n = adjust.apply([m], {"football": [star, other]}, avail)
+    assert n == 1
+    assert m["exp"][0] < 1.8 and m["exp"][1] == 1.0
+    assert star["props"] is None and star["next"]["status"] == "out"
+    assert other["props"] and other["next"]["status"] == "ok"
+    assert any(x["stat"] == "corners" for x in m["markets"])          # other markets are kept
+    assert m["adj"]["missing"]["home"] == ["Bukayo Saka"]
+    home_win = next(x for x in m["markets"] if x["scope"] == "match" and x["kind"] == "1")
+    assert home_win.get("odds") == 1.5                                   # odds re-attached
+
+
+def test_adjust_confirmed_lineup_bench_and_start():
+    m = _fb_match()
+    starter, sub = _fb_player("Bukayo Saka", 0.6), _fb_player("Declan Rice", 0.1)
+    lineup = {"home": {"xi": [{"name": "Bukayo Saka"}] + [{"name": f"X{i}"} for i in range(10)],
+                       "bench": [{"name": "Declan Rice"}]},
+              "away": {"xi": [{"name": f"Y{i}"} for i in range(11)], "bench": []}}
+    adjust.apply([m], {"football": [starter, sub]}, {m["id"]: {"lineup": lineup}})
+    assert starter["next"]["status"] == "start" and sub["next"]["status"] == "bench"
+    assert sub["next"]["exp_min"] == adjust.SUB_MINUTES
+
+
+def test_cup_priors_use_domestic_rating_and_league_strength():
+    games, _, _ = simulate_league(rounds=2)
+    r = models.fit_poisson(games, dt.date(2026, 6, 1), 10_000, 1.0)
+    prior, mapped = soccer_espn.cup_priors(["T1", "Unknown FC"], {"E0": r})
+    assert mapped["T1"] == ("E0", "T1")
+    assert prior["T1"][0] == pytest.approx(r.att["T1"] + soccer_espn.LEAGUE_STRENGTH["E0"] / 2)
+    assert prior["Unknown FC"][0] < 0 < prior["Unknown FC"][1]
+
+
+def test_live_alerts():
+    m = _fb_match()
+    over = next(x for x in m["markets"] if x["scope"] == "total" and x["line"] == 2.5 and x["kind"] == "over")
+    pk = {"match": m["id"], "status": "open", "stat": "goals", "scope": "total", "kind": "over", "line": 2.5,
+          "p": over["p"] + 0.10, "odds": 1.0 / over["p"] + 0.05}
+    picks.live_alerts([pk], [m])
+    assert pk["alert"]["level"] in ("yellow", "red") and pk["p_now"] == over["p"]
+
+
+def test_cached_get_quick_mode(monkeypatch, tmp_path):
+    monkeypatch.setattr(util, "CACHE_DIR", tmp_path)
+    calls = []
+    monkeypatch.setattr(util, "http_get", lambda url, **k: calls.append(url) or {"v": len(calls)})
+    assert util.cached_get("https://x.test/a") == {"v": 1}
+    util.RUN["mode"] = "quick"
+    try:
+        assert util.cached_get("https://x.test/a") == {"v": 1} and len(calls) == 1
+        assert util.cached_get("https://x.test/a", always_fresh=True) == {"v": 2}
+    finally:
+        util.RUN["mode"] = "full"
+
+    def boom(url, **k):
+        raise RuntimeError("down")
+    monkeypatch.setattr(util, "http_get", boom)
+    assert util.cached_get("https://x.test/a") == {"v": 2}                # falls back to the last good copy
+
+
+def test_lineup_with_unmatched_names_is_ignored():
+    m = _fb_match()
+    a, b = _fb_player("Bukayo Saka", 0.6), _fb_player("Declan Rice", 0.1)
+    lineup = {"home": {"xi": [{"name": f"Other {i}"} for i in range(11)], "bench": []},
+              "away": {"xi": [{"name": f"Y{i}"} for i in range(11)], "bench": []}}
+    assert adjust.apply([m], {"football": [a, b]}, {m["id"]: {"lineup": lineup}}) == 0
+    assert a["props"] and a["next"]["status"] == "ok"

@@ -261,6 +261,41 @@ function viewMatches(v) {
   $("#fLeague").onchange = (e) => { S.league = e.target.value; render(); };
 }
 
+const STATUS_SL = { out: "ne igra", doubt: "vprašljiv" };
+function absList(x, side) { return x.availability?.absent?.[side] || []; }
+function newsBadges(x) {
+  const av = x.availability;
+  if (!av) return "";
+  const n = absList(x, "home").length + absList(x, "away").length;
+  const names = ["home", "away"].flatMap((s) => absList(x, s).map((a) => `${esc(a.name)} (${STATUS_SL[a.status] || a.status})`)).slice(0, 12).join("<br>");
+  const adj = x.adj ? `<span class="badge red" data-tip="${esc(adjText(x))}">PRILAGOJENO</span> ` : "";
+  return `${adj}${av.lineup ? `<span class="badge" data-tip="Začetni postavi sta objavljeni.">POSTAVA ✓</span> ` : ""}` +
+    (n ? `<span class="badge grey" data-tip="${names}">🚑 ${n}</span> ` : "");
+}
+function adjText(x) {
+  if (!x.adj) return "";
+  return Object.entries(x.adj.factors).map(([side, f]) => {
+    const miss = x.adj.missing?.[side] || [];
+    return `${x[side]}: napad ${Math.round((f - 1) * 100)} %${miss.length ? ` (brez: ${miss.slice(0, 4).join(", ")})` : ""}`;
+  }).join(" · ");
+}
+function availBlock(x) {
+  const av = x.availability;
+  if (!av) return "";
+  const col = (side) => {
+    const lu = av.lineup?.[side];
+    const abs = absList(x, side);
+    return `<div><div class="h" style="font-weight:700;margin-bottom:4px">${esc(x[side])}</div>
+      ${lu ? `<div class="muted" style="font-size:12px">Začetna postava</div><div style="font-size:13px">${lu.xi.map((p) => esc(p.name)).join(", ")}</div>
+        <div class="muted" style="font-size:12px;margin-top:4px">Klop: ${lu.bench.map((p) => esc(p.name)).join(", ") || "–"}</div>` : ""}
+      ${abs.length ? `<div class="muted" style="font-size:12px;margin-top:6px">Odsotni / vprašljivi</div>${abs.map((a) =>
+        `<div style="font-size:13px">${a.status === "out" ? "🚑" : "⚠️"} ${esc(a.name)} <span class="faint">${esc(a.reason || "")}${a.chance != null && a.status !== "out" ? ` · ${a.chance} %` : ""} · ${esc(a.src || "")}</span></div>`).join("")}` : (lu ? "" : `<div class="faint" style="font-size:12px">Ni znanih odsotnosti.</div>`)}
+    </div>`;
+  };
+  return `<h3>Postave in odsotnosti</h3>${x.adj ? `<div class="warn-box">Model je prilagojen: ${esc(adjText(x))}</div>` : ""}
+    <div class="grid2">${col("home")}${col("away")}</div>`;
+}
+
 function matchCard(x) {
   const sp = SPORTS[x.sport] || {};
   const isBall = x.sport === "nba" || x.sport === "euroleague";
@@ -272,7 +307,7 @@ function matchCard(x) {
     : `<span>Najverjetnejši izid: <b>${x.top_scores?.[0]?.s}</b> (${pct(x.top_scores?.[0]?.p)})</span><span>Najverjetneje skupaj: <b>${x.total_mode} ${unit}</b></span><span>Pričakovano skupaj: <b>${fmtNum(x.exp[0] + x.exp[1], 2)}</b></span>`;
   return `<div class="card match" data-id="${esc(x.id)}">
     <div class="meta"><span>${sp.icon || ""} ${esc(x.league_name)}</span><span>·</span><span>${fmtTime(x.kickoff)}</span>
-      <span class="spacer"></span>${vals.length ? `<span class="badge amber">VALUE ×${vals.length}</span>` : ""}</div>
+      <span class="spacer"></span>${newsBadges(x)}${vals.length ? `<span class="badge amber">VALUE ×${vals.length}</span>` : ""}</div>
     <div class="teams">
       <div>${esc(x.home)}${formChips(x.form?.home)}</div><div class="xg num">${expLbl(x, 0)}</div>
       <div>${esc(x.away)}${formChips(x.form?.away)}</div><div class="xg num">${expLbl(x, 1)}</div>
@@ -304,7 +339,8 @@ function matchDetails(x) {
   const extra = x.extra ? `<div class="muted" style="font-size:12.5px;margin-top:8px">${x.extra.corners ? `Pričakovani koti: <b>${x.extra.corners[0]} – ${x.extra.corners[1]}</b> · ` : ""}${x.extra.cards ? `kartoni: <b>${x.extra.cards[0]} – ${x.extra.cards[1]}</b> · ` : ""}${x.extra.sot ? `streli v okvir: <b>${x.extra.sot[0]} – ${x.extra.sot[1]}</b>` : ""}</div>` : "";
   const players = matchPlayers(x);
   return `<div class="details">
-    <div class="grid2"><div>${dist}${extra}</div><div><h3>Statistika</h3>${statTbl}</div></div>
+    <div class="grid2"><div>${dist}${extra}</div><div><h3>Statistika</h3>${Object.keys(st.home || {}).length || Object.keys(st.away || {}).length ? statTbl : `<div class="faint" style="font-size:13px">Za to tekmovanje ni sezonske statistike. Model uporablja rezultate tekmovanja in moč domače lige.</div>`}</div></div>
+    ${availBlock(x)}
     ${Object.entries(groups).map(([g, ms]) => `<h3>${esc(g)}</h3><div class="scroll"><table class="tbl">
       <tr><th>Dogodek</th><th>Verjetnost</th><th class="r">Fer kvota</th><th class="r">Kvota</th><th class="r">Prednost</th></tr>
       ${ms.map((m) => `<tr class="${m.edge >= 0.05 ? "hl" : ""}"><td>${esc(slLabel(m, x))}</td><td>${pbar(m.p)}</td><td class="r num">${odds(m.fair)}</td><td class="r num">${odds(m.odds)}${m.odds_assumed ? "~" : ""}</td><td class="r num">${edgeCell(m.edge, m.odds_assumed)}</td></tr>`).join("")}
@@ -401,6 +437,14 @@ const PCOLS = {
   nhl: [["name", "Igralec"], ["team", "Ekipa"], ["pos", "Poz."], ["gp", "GP", 0], ["goals", "G", 0], ["points", "P", 0], ["sog_g", "SOG/tek", 2], ["p_g", "T/tek", 2], ["toi", "TOI", 1], ["_next", "Naslednja"], ["_p1", "P(3+ SOG)"], ["_p2", "P(gol)"]],
   nba: [["name", "Igralec"], ["team", "Ekipa"], ["min", "Min", 1], ["pts", "Točke", 1], ["reb", "Skoki", 1], ["ast", "Podaje", 1], ["tpm", "3P", 1], ["pra", "T+S+P", 1], ["_next", "Naslednja"], ["_proj", "Proj. točke"]],
 };
+function playerStatus(p) {
+  const st = p.next?.status;
+  return { out: ` <span class="badge red" data-tip="Ne igra (poškodba, kazen ali ni v postavi).">NE IGRA</span>`,
+    doubt: ` <span class="badge amber" data-tip="Vprašljiv za tekmo.">?</span>`,
+    start: ` <span class="badge" data-tip="V začetni postavi.">XI</span>`,
+    bench: ` <span class="badge grey" data-tip="Na klopi.">KLOP</span>` }[st] || "";
+}
+
 function pval(p, k) {
   if (k === "_p1" || k === "_p2") {
     const lbl = { football: { _p1: "1+ strel v okvir", _p2: "2+ strela" }, nhl: { _p1: "Strelov na gol 3+", _p2: "Da gol" } }[S.players.sport]?.[k];
@@ -440,7 +484,7 @@ function viewPlayers(v) {
     <div class="card scroll" style="padding:4px 6px"><table class="tbl nowrap">
       <tr>${cols.map(([k, l, d]) => `<th class="sort ${d != null || k.startsWith("_p") ? "r" : ""} ${sk === k ? "act" : ""}" data-k="${k}">${l}${sk === k ? (P.dir < 0 ? " ↓" : " ↑") : ""}</th>`).join("")}</tr>
       ${shown.map((p) => `<tr>${cols.map(([k, , d]) => {
-        if (k === "_next") return `<td class="muted" style="white-space:nowrap">${p.next ? `${p.next.home ? "vs" : "@"} ${esc(p.next.opp)} · ${fmtTime(p.next.kickoff)}` : "–"}</td>`;
+        if (k === "_next") return `<td class="muted" style="white-space:nowrap">${p.next ? `${p.next.home ? "vs" : "@"} ${esc(p.next.opp)} · ${fmtTime(p.next.kickoff)}${playerStatus(p)}` : "–"}</td>`;
         if (k === "_p1" || k === "_p2") { const val = pval(p, k); return `<td class="r">${val == null ? "–" : pbar(val)}</td>`; }
         if (k === "_proj") return `<td class="r num">${fmtNum(pval(p, k), 1)}</td>`;
         if (d != null) return `<td class="r num">${fmtNum(p[k], d)}</td>`;
@@ -487,9 +531,14 @@ function viewLog(v) {
     <div class="card scroll" style="padding:4px 6px"><table class="tbl">
       <tr><th>Dan</th><th>Tekma</th><th>Pick</th><th class="r">Model</th><th class="r">Kvota</th><th class="r">Prednost</th><th>Status</th></tr>
       ${list.map((p) => `<tr><td class="muted" style="white-space:nowrap">${p.day}${p.totd ? ` <span class="badge" data-tip="Tip of the Day">TOTD</span>` : ""}</td><td>${SPORTS[p.sport]?.icon || ""} ${esc(p.home)} – ${esc(p.away)}</td>
-        <td>${esc(slLabel(p, p))}</td><td class="r num">${pct(p.p)}</td><td class="r num">${odds(p.odds)}${p.odds_assumed ? "~" : ""}</td><td class="r">${edgeCell(p.edge, p.odds_assumed)}</td><td>${statusBadge(p.status)}</td></tr>`).join("")}
+        <td>${esc(slLabel(p, p))}</td><td class="r num">${pct(p.p)}</td><td class="r num">${odds(p.odds)}${p.odds_assumed ? "~" : ""}</td><td class="r">${edgeCell(p.edge, p.odds_assumed)}</td><td>${statusBadge(p.status)}${alertBadge(p)}</td></tr>`).join("")}
     </table>${!list.length ? `<div class="empty"><b>Dnevnik je prazen</b>Picki se zabeležijo samodejno ob naslednjih zagonih.</div>` : ""}</div>`;
   $("#lF").onchange = (e) => { S.log.filter = e.target.value; render(); };
+}
+
+function alertBadge(p) {
+  if (!p.alert) return "";
+  return ` <span class="badge ${p.alert.level === "red" ? "red" : "amber"}" data-tip="${esc(p.alert.text)}">${p.alert.level === "red" ? "🟥" : "🟨"} ALERT</span>`;
 }
 
 function profitChart(picks) {
@@ -637,6 +686,17 @@ function buildPost(list, type, trap) {
     (type === "bold" ? "\nHigher odds, higher risk. Eyes open. Small stakes only.\n" : "") + foot;
 }
 
+function buildAlertPost(p) {
+  const x = S.data.byId[p.match] || p;
+  const red = p.alert.level === "red";
+  const miss = x.adj ? Object.values(x.adj.missing || {}).flat().slice(0, 4).join(", ") : "";
+  return `🚨 LINEUP ALERT ${red ? "🟥" : "🟨"}\n${SPORTS[p.sport]?.en || ""} ${p.home} v ${p.away}\n\n` +
+    `Pick: ${enLabel(p, p)} @ ${odds(p.odds)}\nWas: ${pct(p.p)} · Now: ${pct(p.p_now)}\n` +
+    (miss ? `Out: ${miss}\n` : "") +
+    (red ? "\nRed card: pick pulled. No value at this price now.\n" : "\nYellow card: still on, lower confidence.\n") +
+    `\n18+ · Play for fun. Never chase losses.\n#TheOddsRoom`;
+}
+
 function viewPosts(v) {
   const events = allEvents();
   const byKey = Object.fromEntries(events.map((e) => [evKey(e), e]));
@@ -646,7 +706,9 @@ function viewPosts(v) {
   const strong = events.filter((e) => e.p >= 0.6 && e.p <= 0.88).sort((a, b) => b.p - a.p).slice(0, 40);
   const tr = traps().slice(0, 15);
   const type = S.post.trapIdx != null ? "trap" : (S.post.type === "auto" ? (sel[0] ? autoType(sel[0], sel) : "value") : S.post.type);
-  const text = S.post.trapIdx != null && tr[S.post.trapIdx] ? buildPost([], "trap", tr[S.post.trapIdx]) : (sel.length ? buildPost(sel, type) : "");
+  const alerts = (S.data.picks.picks || []).filter((p) => p.alert && p.status === "open");
+  let text = S.post.trapIdx != null && tr[S.post.trapIdx] ? buildPost([], "trap", tr[S.post.trapIdx]) : (sel.length ? buildPost(sel, type) : "");
+  if (S.post.alertIdx != null && alerts[S.post.alertIdx]) text = buildAlertPost(alerts[S.post.alertIdx]);
   const item = (e) => { const k = evKey(e); return `<div class="pick-item ${S.post.selected.includes(k) ? "on" : ""}" data-k="${esc(k)}"><input type="checkbox" ${S.post.selected.includes(k) ? "checked" : ""}>
     <div style="flex:1"><div>${SPORTS[e.sport]?.icon || ""} ${esc(e.title)}</div><div class="faint" style="font-size:12px">${esc(e.sub)} · ${fmtTime(e.kickoff)}</div></div>
     <div class="r num"><b class="g">${pct(e.p)}</b>${e.odds ? `<div class="faint" style="font-size:12px">@ ${odds(e.odds)}</div>` : ""}</div></div>`; };
@@ -656,6 +718,7 @@ function viewPosts(v) {
       <div>
         <h3>Value dogodki</h3><div class="pick-list">${vals.map(item).join("") || `<div class="empty" style="padding:16px">Ni value dogodkov.</div>`}</div>
         <h3>Močni dogodki (60–88 %)</h3><div class="pick-list">${strong.map(item).join("")}</div>
+        ${alerts.length ? `<h3>Lineup alerti</h3><div class="pick-list">${alerts.map((p, i) => `<div class="pick-item ${S.post.alertIdx === i ? "on" : ""}" data-alert="${i}"><div style="flex:1"><div>${p.alert.level === "red" ? "🟥" : "🟨"} ${esc(slLabel(p, p))} @ ${odds(p.odds)}</div><div class="faint" style="font-size:12px">${esc(p.home)} – ${esc(p.away)} · ${esc(p.alert.text)}</div></div></div>`).join("")}</div>` : ""}
         <h3>Trap radar <span class="badge red">+ FLIP</span></h3>
         <div class="pick-list">${tr.map((t, i) => `<div class="pick-item ${S.post.trapIdx === i ? "on" : ""}" data-trap="${i}"><div style="flex:1"><div>${esc(slLabel(t.m, t.x))} @ ${odds(t.m.odds)}</div><div class="faint" style="font-size:12px">${esc(t.x.home)} – ${esc(t.x.away)} · kvota pravi ${pct(t.implied)}, model ${pct(t.m.p)}</div></div></div>`).join("") || `<div class="empty" style="padding:16px">Ni pasti: kratke kvote se ujemajo z modelom.</div>`}</div>
       </div>
@@ -667,11 +730,12 @@ function viewPosts(v) {
       </div>
     </div>`;
   v.querySelectorAll(".pick-item[data-k]").forEach((el) => el.onclick = () => {
-    const k = el.dataset.k; S.post.trapIdx = null;
+    const k = el.dataset.k; S.post.trapIdx = null; S.post.alertIdx = null;
     S.post.selected = S.post.selected.includes(k) ? S.post.selected.filter((x) => x !== k) : [...S.post.selected, k];
     render();
   });
-  v.querySelectorAll(".pick-item[data-trap]").forEach((el) => el.onclick = () => { S.post.trapIdx = +el.dataset.trap; S.post.selected = []; render(); });
+  v.querySelectorAll(".pick-item[data-trap]").forEach((el) => el.onclick = () => { S.post.trapIdx = +el.dataset.trap; S.post.alertIdx = null; S.post.selected = []; render(); });
+  v.querySelectorAll(".pick-item[data-alert]").forEach((el) => el.onclick = () => { S.post.alertIdx = +el.dataset.alert; S.post.trapIdx = null; S.post.selected = []; render(); });
   v.querySelectorAll("[data-type]").forEach((b) => b.onclick = () => {
     if (b.dataset.type === "trap") { if (S.post.trapIdx == null) S.post.trapIdx = 0; } else { S.post.trapIdx = null; S.post.type = b.dataset.type; }
     render();
@@ -680,7 +744,10 @@ function viewPosts(v) {
     const t = $("#postText").value;
     navigator.clipboard?.writeText(t).then(() => { $("#copyPost").textContent = "Kopirano ✓"; setTimeout(() => ($("#copyPost").textContent = "Kopiraj"), 1500); });
   };
-  $("#clearPost").onclick = () => { S.post.selected = []; S.post.trapIdx = null; S.post.type = "auto"; render(); };
+  if (S.post.scroll && window.innerWidth < 700) { $("#postText").scrollIntoView({ block: "center" }); }
+  S.post.scroll = false;
+  v.querySelectorAll(".pick-item").forEach((el) => el.addEventListener("click", () => { S.post.scroll = true; }, { capture: true }));
+  $("#clearPost").onclick = () => { S.post.selected = []; S.post.trapIdx = null; S.post.alertIdx = null; S.post.type = "auto"; render(); };
 }
 
 load();

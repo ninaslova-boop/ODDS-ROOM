@@ -6,7 +6,7 @@ import logging
 import math
 
 from . import espn, models
-from .util import http_get, match_name, now_utc, parse_iso, to_float
+from .util import cached_get, match_name, now_utc, parse_iso, to_float
 
 log = logging.getLogger("pipeline.sports")
 
@@ -85,6 +85,16 @@ def _season_start(today: dt.date) -> dt.date:
     return dt.date(y, 9, 1)
 
 
+def nhl_markets(lh: float, la: float, odds: dict):
+    M = models.score_matrix(lh, la, 12, 0.0)
+    lines = sorted({4.5, 5.5, 6.5, 7.5} | ({odds["total"]} if odds.get("total") else set()))
+    mk = models.goal_markets(M, unit="golov", total_lines=lines, hockey=True)
+    mk += [models.mk("goals", s, "over", L, models.poisson_sf(lam, L), f"{nm} več kot {L}", "Goli ekip")
+           for s, lam, nm in (("home", lh, "Domači"), ("away", la, "Gostje")) for L in (1.5, 2.5, 3.5)]
+    _attach_us_odds(mk, odds)
+    return M, mk
+
+
 # --------------------------------------------------------------------------
 def build_nhl(today: dt.date) -> dict:
     games = espn.update_games("hockey", "nhl", today)
@@ -104,13 +114,8 @@ def build_nhl(today: dt.date) -> dict:
         if h not in r.att or a not in r.att:
             continue
         lh, la = r.expected(h, a, neutral=g.get("neutral", False))
-        M = models.score_matrix(lh, la, 12, 0.0)
         odds = g.get("odds", {})
-        lines = sorted({4.5, 5.5, 6.5, 7.5} | ({odds["total"]} if odds.get("total") else set()))
-        mk = models.goal_markets(M, unit="golov", total_lines=lines, hockey=True)
-        mk += [models.mk("goals", s, "over", L, models.poisson_sf(lam, L), f"{nm} več kot {L}", "Goli ekip")
-               for s, lam, nm in (("home", lh, "Domači"), ("away", la, "Gostje")) for L in (1.5, 2.5, 3.5)]
-        _attach_us_odds(mk, odds)
+        M, mk = nhl_markets(lh, la, odds)
         dist = models.total_distribution(M, 10)
         matches.append({
             "id": f"nhl:{g['id']}", "sport": "nhl", "league": "NHL", "league_name": "NHL",
@@ -171,7 +176,7 @@ def _el_games(season_code: str) -> list[dict]:
     last = None
     for base in EL_BASES:
         try:
-            j = http_get(f"{base}/competitions/E/seasons/{season_code}/games")
+            j = cached_get(f"{base}/competitions/E/seasons/{season_code}/games")
             data = j.get("data", j) if isinstance(j, dict) else j
             if isinstance(data, list) and data:
                 return data

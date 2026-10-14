@@ -11,7 +11,7 @@ import logging
 import re
 import time
 
-from .util import CACHE_DIR, american_to_decimal, http_get, read_json, to_float, write_json
+from .util import CACHE_DIR, american_to_decimal, http_get, is_quick, read_json, to_float, write_json
 
 log = logging.getLogger("pipeline.espn")
 BASE = "https://site.api.espn.com/apis/site/v2/sports"
@@ -70,9 +70,14 @@ def parse_odds(odds_list: list, home_abbr: str | None, away_abbr: str | None) ->
         res["ml_home"] = american_to_decimal(hto.get("moneyLine"))
     if ato.get("moneyLine") is not None:
         res["ml_away"] = american_to_decimal(ato.get("moneyLine"))
+    if (o.get("drawOdds") or {}).get("moneyLine") is not None:          # soccer 3-way
+        res["ml_draw"] = american_to_decimal(o["drawOdds"]["moneyLine"])
+    for side in ("over", "under"):
+        if o.get(f"{side}Odds") is not None:
+            res[side] = american_to_decimal(o[f"{side}Odds"])
     # newer shape
     ml = o.get("moneyline") or {}
-    for side, key in (("home", "ml_home"), ("away", "ml_away")):
+    for side, key in (("home", "ml_home"), ("away", "ml_away"), ("draw", "ml_draw")):
         node = (ml.get(side) or {})
         node = node.get("close") or node.get("open") or {}
         if node.get("odds") and key not in res:
@@ -142,14 +147,17 @@ def _fetch_range(sport: str, league: str, d1: dt.date, d2: dt.date) -> tuple[lis
 
 
 def update_games(sport: str, league: str, today: dt.date, start_month: int = 10, end_month: int = 6,
-                 max_requests: int = 900) -> dict[str, dict]:
-    """Keep a disk cache of all games of the current and previous season. Return {id: game}."""
+                 max_requests: int = 900, windows: list[tuple[dt.date, dt.date]] | None = None) -> dict[str, dict]:
+    """Keep a disk cache of all games of the current and previous season. Return {id: game}.
+    In quick mode only the days near today are fetched; history comes from the cache."""
     path = CACHE_DIR / f"espn_{league}.json"
     cache = read_json(path, {"events": {}, "done": []})
     events: dict = cache["events"]
     done_days = set(cache["done"])
     reqs = 0
-    for w0, w1 in _season_windows(today, start_month, end_month):
+    full_windows = windows or _season_windows(today, start_month, end_month)
+    windows = [(today - dt.timedelta(days=2), today + dt.timedelta(days=8))] if is_quick() else full_windows
+    for w0, w1 in windows:
         d = w0
         while d <= w1 and reqs < max_requests:
             # month chunks for the past, single days near today
@@ -187,8 +195,8 @@ def update_games(sport: str, league: str, today: dt.date, start_month: int = 10,
                         and (complete or day_games):
                     done_days.add(x.isoformat())
             d = chunk_end + dt.timedelta(days=1)
-    # drop games older than the previous season window
-    oldest = _season_windows(today, start_month, end_month)[0][0].isoformat()
+    # drop games older than the oldest window
+    oldest = min(w[0] for w in full_windows).isoformat()
     events = {k: v for k, v in events.items() if (v.get("d") or "")[:10] >= oldest}
     done_days = {x for x in done_days if x >= oldest}
     write_json(path, {"events": events, "done": sorted(done_days)})
