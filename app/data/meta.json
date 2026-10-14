@@ -1,19 +1,19 @@
 {
- "generated": "2026-10-13T21:59:43Z",
- "today": "2026-10-13",
+ "generated": "2026-10-14T10:35:44Z",
+ "today": "2026-10-14",
  "status": {
   "football": {
-   "matches": 12,
+   "matches": 4,
    "players": 1610,
    "ok": true
   },
   "nhl": {
-   "matches": 51,
-   "players": 648,
+   "matches": 46,
+   "players": 662,
    "ok": true
   },
   "nba": {
-   "matches": 1,
+   "matches": 3,
    "players": 391,
    "ok": true
   },
@@ -31,7 +31,7 @@
     "table": [
      {
       "team": "Man City",
-      "att": 1.513,
+      "att": 1.512,
       "def": 0.731
      },
      {
@@ -61,7 +61,7 @@
      },
      {
       "team": "Chelsea",
-      "att": 1.378,
+      "att": 1.377,
       "def": 1.179
      },
      {
@@ -107,7 +107,7 @@
      {
       "team": "Crystal Palace",
       "att": 0.965,
-      "def": 1.146
+      "def": 1.145
      },
      {
       "team": "Fulham",
@@ -137,7 +137,7 @@
      {
       "team": "Burnley",
       "att": 0.831,
-      "def": 1.247
+      "def": 1.246
      },
      {
       "team": "Wolves",
@@ -158,7 +158,7 @@
      {
       "team": "Coventry",
       "att": 1.383,
-      "def": 0.813
+      "def": 0.814
      },
      {
       "team": "Southampton",
@@ -167,17 +167,17 @@
      },
      {
       "team": "Wolves",
-      "att": 1.354,
+      "att": 1.353,
       "def": 0.887
      },
      {
       "team": "Ipswich",
-      "att": 1.22,
+      "att": 1.219,
       "def": 0.844
      },
      {
       "team": "Middlesbrough",
-      "att": 1.259,
+      "att": 1.258,
       "def": 0.906
      },
      {
@@ -187,7 +187,7 @@
      },
      {
       "team": "Millwall",
-      "att": 1.148,
+      "att": 1.147,
       "def": 0.94
      },
      {
@@ -207,7 +207,7 @@
      },
      {
       "team": "Hull",
-      "att": 1.082,
+      "att": 1.081,
       "def": 1.035
      },
      {
@@ -233,7 +233,7 @@
      {
       "team": "West Brom",
       "att": 0.828,
-      "def": 0.843
+      "def": 0.844
      },
      {
       "team": "Bristol City",
@@ -282,12 +282,12 @@
      },
      {
       "team": "Bolton",
-      "att": 0.923,
+      "att": 0.922,
       "def": 1.314
      },
      {
       "team": "Watford",
-      "att": 0.751,
+      "att": 0.752,
       "def": 1.095
      },
      {
@@ -297,7 +297,7 @@
      },
      {
       "team": "Sheffield Weds",
-      "att": 0.669,
+      "att": 0.67,
       "def": 1.273
      }
     ]
@@ -308,7 +308,7 @@
     "table": [
      {
       "team": "Barcelona",
-      "att": 2.138,
+      "att": 2.137,
       "def": 0.749
      },
      {
@@ -318,7 +318,7 @@
      },
      {
       "team": "Ath Madrid",
-      "att": 1.346,
+      "att": 1.345,
       "def": 0.832
      },
      {
@@ -333,7 +333,7 @@
      },
      {
       "team": "Celta",
-      "att": 0.869,
+      "att": 0.87,
       "def": 0.801
      },
      {
@@ -353,7 +353,7 @@
      },
      {
       "team": "Sociedad",
-      "att": 1.171,
+      "att": 1.17,
       "def": 1.182
      },
      {
@@ -368,12 +368,12 @@
      },
      {
       "team": "Girona",
-      "att": 0.865,
+      "att": 0.866,
       "def": 0.933
      },
      {
       "team": "La Coruna",
-      "att": 1.008,
+      "att": 1.007,
       "def": 1.095
      },
      {
@@ -408,13 +408,13 @@
      },
      {
       "team": "Oviedo",
-      "att": 0.725,
+      "att": 0.726,
       "def": 1.043
      },
      {
       "team": "Santander",
       "att": 1.117,
-      "def": 1.749
+      "def": 1.748
      },
      {
       "team": "Malaga",
@@ -434,7 +434,7 @@
      },
      {
       "team": "Inter",
-      "att": 1.918,
+      "att": 1.917,
       "def": 0.897
      },
      {
@@ -444,22 +444,22 @@
      },
      {
       "team": "Juventus",
-      "att": 1.222,
+      "att": 1.221,
       "def": 0.766
      },
      {
       "team": "Napoli",
-      "att": 1.228,
+      "att": 1.227,
       "def": 0.776
      },
      {
       "team": "Milan",
-      "att": 1.146,
+      "att": 1.145,
       "def": 0.785
      },
      {
       "team": "Lazio",
-      "att": 1.034,
+      "att": 1.035,
       "def": 0.794
      },
      {
@@ -484,7 +484,7 @@
      },
      {
       "team": "Bologna",
-      "att": 0.923,
+      "att": 0.924,
       "def": 0.935
      },
      {
@@ -500,7 +500,7 @@
      {
       "team": "Genoa",
       "att": 0.866,
-      "def": 1.128
+      "def": 1.127
      },
      {
       "team": "Fiorentina",
@@ -519,7 +519,7 @@
      },
      {
       "team": "Monza",
-      "att": 1.061,
+      "att": 1.06,
       "def": 1.557
      },
      {
@@ -540,7 +540,7 @@
      {
       "team": "Venezia",
       "att": 0.779,
-      "def": 1.794
+      "def": 1.793
      }
     ]
    },
@@ -560,7 +560,7 @@
      },
      {
       "team": "RB Leipzig",
-      "att": 1.302,
+      "att": 1.301,
       "def": 0.809
      },
      {
@@ -570,12 +570,12 @@
      },
      {
       "team": "Freiburg",
-      "att": 1.174,
+      "att": 1.173,
       "def": 0.888
      },
      {
       "team": "Stuttgart",
-      "att": 1.194,
+      "att": 1.193,
       "def": 0.905
      },
      {
@@ -586,7 +586,7 @@
      {
       "team": "Mainz",
       "att": 1.096,
-      "def": 1.073
+      "def": 1.072
      },
      {
       "team": "Elversberg",
@@ -600,13 +600,13 @@
      },
      {
       "team": "Hoffenheim",
-      "att": 1.115,
+      "att": 1.114,
       "def": 1.223
      },
      {
       "team": "Schalke 04",
       "att": 0.715,
-      "def": 0.818
+      "def": 0.819
      },
      {
       "team": "Ein Frankfurt",
@@ -615,7 +615,7 @@
      },
      {
       "team": "Wolfsburg",
-      "att": 0.875,
+      "att": 0.876,
       "def": 1.097
      },
      {
@@ -636,7 +636,7 @@
      {
       "team": "Hamburg",
       "att": 0.802,
-      "def": 1.169
+      "def": 1.168
      },
      {
       "team": "St Pauli",
@@ -645,7 +645,7 @@
      },
      {
       "team": "Paderborn",
-      "att": 0.624,
+      "att": 0.625,
       "def": 0.933
      },
      {
@@ -721,7 +721,7 @@
      },
      {
       "team": "Le Mans",
-      "att": 1.089,
+      "att": 1.088,
       "def": 1.232
      },
      {
@@ -746,7 +746,7 @@
      },
      {
       "team": "Angers",
-      "att": 0.776,
+      "att": 0.777,
       "def": 1.106
      },
      {
@@ -756,7 +756,7 @@
      },
      {
       "team": "Troyes",
-      "att": 0.676,
+      "att": 0.677,
       "def": 1.427
      }
     ]
@@ -767,12 +767,12 @@
     "table": [
      {
       "team": "PSV Eindhoven",
-      "att": 1.856,
-      "def": 0.799
+      "att": 1.855,
+      "def": 0.8
      },
      {
       "team": "Feyenoord",
-      "att": 1.511,
+      "att": 1.51,
       "def": 0.714
      },
      {
@@ -783,12 +783,12 @@
      {
       "team": "Twente",
       "att": 1.136,
-      "def": 0.71
+      "def": 0.711
      },
      {
       "team": "AZ Alkmaar",
       "att": 1.149,
-      "def": 0.783
+      "def": 0.784
      },
      {
       "team": "Groningen",
@@ -827,7 +827,7 @@
      },
      {
       "team": "Volendam",
-      "att": 0.778,
+      "att": 0.779,
       "def": 0.925
      },
      {
@@ -848,7 +848,7 @@
      {
       "team": "Cambuur",
       "att": 0.868,
-      "def": 1.33
+      "def": 1.329
      },
      {
       "team": "Den Haag",
@@ -857,18 +857,18 @@
      },
      {
       "team": "Heracles",
-      "att": 0.758,
-      "def": 1.272
+      "att": 0.759,
+      "def": 1.271
      },
      {
       "team": "Zwolle",
-      "att": 0.73,
+      "att": 0.731,
       "def": 1.273
      },
      {
       "team": "Willem II",
       "att": 0.681,
-      "def": 1.49
+      "def": 1.489
      }
     ]
    },
@@ -883,7 +883,7 @@
      },
      {
       "team": "Benfica",
-      "att": 1.844,
+      "att": 1.843,
       "def": 0.766
      },
      {
@@ -903,7 +903,7 @@
      },
      {
       "team": "Arouca",
-      "att": 1.09,
+      "att": 1.089,
       "def": 0.948
      },
      {
@@ -918,7 +918,7 @@
      },
      {
       "team": "Gil Vicente",
-      "att": 0.867,
+      "att": 0.868,
       "def": 0.814
      },
      {
@@ -933,7 +933,7 @@
      },
      {
       "team": "Guimaraes",
-      "att": 0.755,
+      "att": 0.756,
       "def": 0.977
      },
      {
@@ -948,12 +948,12 @@
      },
      {
       "team": "Tondela",
-      "att": 0.81,
-      "def": 1.123
+      "att": 0.811,
+      "def": 1.122
      },
      {
       "team": "Estoril",
-      "att": 0.815,
+      "att": 0.816,
       "def": 1.131
      },
      {
@@ -963,7 +963,7 @@
      },
      {
       "team": "AVS",
-      "att": 0.813,
+      "att": 0.814,
       "def": 1.205
      },
      {
@@ -995,7 +995,7 @@
      {
       "team": "Gent",
       "att": 1.125,
-      "def": 0.725
+      "def": 0.726
      },
      {
       "team": "Charleroi",
@@ -1015,7 +1015,7 @@
      {
       "team": "St Truiden",
       "att": 1.209,
-      "def": 1.075
+      "def": 1.074
      },
      {
       "team": "Anderlecht",
@@ -1045,7 +1045,7 @@
      {
       "team": "Antwerp",
       "att": 0.957,
-      "def": 1.207
+      "def": 1.206
      },
      {
       "team": "Mechelen",
@@ -1064,7 +1064,7 @@
      },
      {
       "team": "RAAL La Louviere",
-      "att": 0.824,
+      "att": 0.825,
       "def": 1.297
      },
      {
@@ -1085,7 +1085,7 @@
     "table": [
      {
       "team": "Fenerbahce",
-      "att": 1.666,
+      "att": 1.665,
       "def": 0.833
      },
      {
@@ -1105,28 +1105,28 @@
      },
      {
       "team": "Amedspor",
-      "att": 1.599,
+      "att": 1.598,
       "def": 1.05
      },
      {
       "team": "Buyuksehyr",
-      "att": 1.183,
+      "att": 1.182,
       "def": 0.918
      },
      {
       "team": "Corum",
-      "att": 1.427,
+      "att": 1.426,
       "def": 1.173
      },
      {
       "team": "Alanyaspor",
       "att": 0.895,
-      "def": 0.827
+      "def": 0.828
      },
      {
       "team": "Kocaelispor",
       "att": 0.781,
-      "def": 0.738
+      "def": 0.739
      },
      {
       "team": "Goztep",
@@ -1136,7 +1136,7 @@
      {
       "team": "Kasimpasa",
       "att": 0.873,
-      "def": 0.879
+      "def": 0.88
      },
      {
       "team": "Rizespor",
@@ -1145,7 +1145,7 @@
      },
      {
       "team": "Konyaspor",
-      "att": 0.794,
+      "att": 0.795,
       "def": 0.929
      },
      {
@@ -1155,7 +1155,7 @@
      },
      {
       "team": "Antalyaspor",
-      "att": 0.847,
+      "att": 0.848,
       "def": 1.091
      },
      {
@@ -1165,7 +1165,7 @@
      },
      {
       "team": "Genclerbirligi",
-      "att": 0.85,
+      "att": 0.851,
       "def": 1.143
      },
      {
@@ -1231,7 +1231,7 @@
      },
      {
       "team": "Dundee United",
-      "att": 0.957,
+      "att": 0.958,
       "def": 1.068
      },
      {
@@ -1272,7 +1272,7 @@
      },
      {
       "team": "Panathinaikos",
-      "att": 1.329,
+      "att": 1.328,
       "def": 0.713
      },
      {
@@ -1293,11 +1293,11 @@
      {
       "team": "OFI Crete",
       "att": 1.062,
-      "def": 1.116
+      "def": 1.115
      },
      {
       "team": "Iraklis",
-      "att": 0.836,
+      "att": 0.837,
       "def": 0.884
      },
      {
@@ -1338,12 +1338,12 @@
      {
       "team": "Volos NFC",
       "att": 0.922,
-      "def": 1.407
+      "def": 1.406
      },
      {
       "team": "Panserraikos",
       "att": 0.754,
-      "def": 1.4
+      "def": 1.399
      }
     ]
    },
@@ -1363,7 +1363,7 @@
      },
      {
       "team": "Nurnberg",
-      "att": 1.302,
+      "att": 1.301,
       "def": 0.949
      },
      {
@@ -1459,12 +1459,12 @@
      {
       "team": "Preußen Münster",
       "att": 0.818,
-      "def": 1.167
+      "def": 1.166
      },
      {
       "team": "Karlsruhe",
       "att": 0.836,
-      "def": 1.209
+      "def": 1.208
      }
     ]
    },
@@ -1475,11 +1475,11 @@
      {
       "team": "Venezia",
       "att": 1.409,
-      "def": 0.766
+      "def": 0.767
      },
      {
       "team": "Frosinone",
-      "att": 1.395,
+      "att": 1.394,
       "def": 0.803
      },
      {
@@ -1489,7 +1489,7 @@
      },
      {
       "team": "Monza",
-      "att": 1.186,
+      "att": 1.185,
       "def": 0.796
      },
      {
@@ -1504,12 +1504,12 @@
      },
      {
       "team": "Mantova",
-      "att": 1.2,
-      "def": 0.992
+      "att": 1.199,
+      "def": 0.991
      },
      {
       "team": "Verona",
-      "att": 1.36,
+      "att": 1.359,
       "def": 1.17
      },
      {
@@ -1525,7 +1525,7 @@
      {
       "team": "Benevento",
       "att": 0.974,
-      "def": 0.862
+      "def": 0.863
      },
      {
       "team": "Avellino",
@@ -1540,7 +1540,7 @@
      {
       "team": "Cremonese",
       "att": 0.832,
-      "def": 0.91
+      "def": 0.909
      },
      {
       "team": "Pescara",
@@ -1599,7 +1599,7 @@
      },
      {
       "team": "Vicenza",
-      "att": 0.847,
+      "att": 0.848,
       "def": 1.414
      },
      {
@@ -1621,11 +1621,11 @@
      {
       "team": "Castellon",
       "att": 1.18,
-      "def": 0.733
+      "def": 0.734
      },
      {
       "team": "Almeria",
-      "att": 1.338,
+      "att": 1.337,
       "def": 0.868
      },
      {
@@ -1640,7 +1640,7 @@
      },
      {
       "team": "Malaga",
-      "att": 1.308,
+      "att": 1.307,
       "def": 0.983
      },
      {
@@ -1680,7 +1680,7 @@
      },
      {
       "team": "Las Palmas",
-      "att": 1.105,
+      "att": 1.104,
       "def": 1.109
      },
      {
@@ -1700,7 +1700,7 @@
      },
      {
       "team": "Celta B",
-      "att": 1.12,
+      "att": 1.119,
       "def": 1.254
      },
      {
@@ -1710,7 +1710,7 @@
      },
      {
       "team": "Cordoba",
-      "att": 1.125,
+      "att": 1.124,
       "def": 1.382
      },
      {
@@ -1766,13 +1766,13 @@
     "table": [
      {
       "team": "St Etienne",
-      "att": 1.573,
+      "att": 1.572,
       "def": 0.877
      },
      {
       "team": "Troyes",
       "att": 1.256,
-      "def": 0.866
+      "def": 0.867
      },
      {
       "team": "Reims",
@@ -1782,7 +1782,7 @@
      {
       "team": "Le Mans",
       "att": 1.131,
-      "def": 0.82
+      "def": 0.821
      },
      {
       "team": "Montpellier",
@@ -1806,7 +1806,7 @@
      },
      {
       "team": "Dijon",
-      "att": 1.271,
+      "att": 1.27,
       "def": 1.198
      },
      {
@@ -1846,7 +1846,7 @@
      },
      {
       "team": "Bastia",
-      "att": 0.785,
+      "att": 0.786,
       "def": 0.939
      },
      {
@@ -1857,7 +1857,7 @@
      {
       "team": "Sochaux",
       "att": 0.649,
-      "def": 0.81
+      "def": 0.811
      },
      {
       "team": "Boulogne",
@@ -1866,180 +1866,180 @@
      },
      {
       "team": "Laval",
-      "att": 0.901,
-      "def": 1.329
+      "att": 0.902,
+      "def": 1.328
      },
      {
       "team": "Amiens",
       "att": 0.908,
-      "def": 1.383
+      "def": 1.382
      }
     ]
    }
   },
   "nhl": {
-   "home_adv": 1.051,
-   "avg_goals": 6.21,
+   "home_adv": 1.037,
+   "avg_goals": 6.25,
    "table": [
     {
      "team": "Carolina Hurricanes",
-     "att": 1.242,
-     "def": 0.897
+     "att": 1.236,
+     "def": 0.882
     },
     {
      "team": "Colorado Avalanche",
-     "att": 1.182,
-     "def": 0.92
-    },
-    {
-     "team": "Minnesota Wild",
-     "att": 1.11,
-     "def": 0.877
-    },
-    {
-     "team": "Tampa Bay Lightning",
-     "att": 1.092,
-     "def": 0.881
+     "att": 1.179,
+     "def": 0.896
     },
     {
      "team": "New York Rangers",
-     "att": 1.059,
-     "def": 0.858
+     "att": 1.068,
+     "def": 0.826
     },
     {
-     "team": "Ottawa Senators",
-     "att": 1.042,
-     "def": 0.851
-    },
-    {
-     "team": "Dallas Stars",
-     "att": 0.968,
-     "def": 0.825
-    },
-    {
-     "team": "Utah Mammoth",
-     "att": 1.108,
-     "def": 0.954
+     "team": "Minnesota Wild",
+     "att": 1.083,
+     "def": 0.906
     },
     {
      "team": "Vegas Golden Knights",
-     "att": 1.052,
-     "def": 0.911
+     "att": 1.07,
+     "def": 0.9
     },
     {
-     "team": "Washington Capitals",
-     "att": 1.076,
-     "def": 0.937
+     "team": "Tampa Bay Lightning",
+     "att": 1.055,
+     "def": 0.895
     },
     {
      "team": "Edmonton Oilers",
      "att": 1.172,
-     "def": 1.036
+     "def": 1.004
+    },
+    {
+     "team": "Utah Mammoth",
+     "att": 1.115,
+     "def": 0.957
     },
     {
      "team": "Boston Bruins",
-     "att": 1.069,
+     "att": 1.093,
      "def": 0.946
     },
     {
-     "team": "Buffalo Sabres",
-     "att": 1.067,
-     "def": 1.014
+     "team": "Dallas Stars",
+     "att": 0.945,
+     "def": 0.82
     },
     {
-     "team": "Montreal Canadiens",
-     "att": 1.057,
-     "def": 1.014
+     "team": "Washington Capitals",
+     "att": 1.052,
+     "def": 0.938
     },
     {
-     "team": "New York Islanders",
-     "att": 0.99,
-     "def": 0.97
-    },
-    {
-     "team": "Pittsburgh Penguins",
-     "att": 1.105,
-     "def": 1.086
-    },
-    {
-     "team": "Seattle Kraken",
-     "att": 1.046,
-     "def": 1.038
-    },
-    {
-     "team": "Anaheim Ducks",
-     "att": 1.067,
-     "def": 1.062
-    },
-    {
-     "team": "Nashville Predators",
-     "att": 0.99,
-     "def": 0.987
-    },
-    {
-     "team": "Columbus Blue Jackets",
-     "att": 1.006,
-     "def": 1.007
+     "team": "Ottawa Senators",
+     "att": 1.011,
+     "def": 0.913
     },
     {
      "team": "St. Louis Blues",
-     "att": 0.949,
-     "def": 0.998
+     "att": 1.018,
+     "def": 0.972
     },
     {
-     "team": "Toronto Maple Leafs",
-     "att": 1.091,
-     "def": 1.157
+     "team": "Montreal Canadiens",
+     "att": 1.054,
+     "def": 1.01
     },
     {
-     "team": "Philadelphia Flyers",
-     "att": 0.834,
-     "def": 0.939
+     "team": "Buffalo Sabres",
+     "att": 1.052,
+     "def": 1.013
+    },
+    {
+     "team": "Seattle Kraken",
+     "att": 1.044,
+     "def": 1.017
+    },
+    {
+     "team": "New York Islanders",
+     "att": 0.963,
+     "def": 0.949
+    },
+    {
+     "team": "Anaheim Ducks",
+     "att": 1.04,
+     "def": 1.069
+    },
+    {
+     "team": "Pittsburgh Penguins",
+     "att": 1.083,
+     "def": 1.116
     },
     {
      "team": "Winnipeg Jets",
-     "att": 0.893,
-     "def": 1.009
+     "att": 0.929,
+     "def": 0.978
     },
     {
-     "team": "Detroit Red Wings",
-     "att": 0.883,
-     "def": 1.014
+     "team": "Nashville Predators",
+     "att": 0.964,
+     "def": 1.015
+    },
+    {
+     "team": "Toronto Maple Leafs",
+     "att": 1.094,
+     "def": 1.17
+    },
+    {
+     "team": "Columbus Blue Jackets",
+     "att": 0.993,
+     "def": 1.07
     },
     {
      "team": "Florida Panthers",
-     "att": 0.926,
-     "def": 1.082
+     "att": 0.983,
+     "def": 1.076
     },
     {
-     "team": "Los Angeles Kings",
-     "att": 0.834,
-     "def": 0.99
+     "team": "Philadelphia Flyers",
+     "att": 0.813,
+     "def": 0.936
+    },
+    {
+     "team": "Detroit Red Wings",
+     "att": 0.895,
+     "def": 1.045
     },
     {
      "team": "New Jersey Devils",
-     "att": 0.876,
-     "def": 1.063
+     "att": 0.908,
+     "def": 1.079
+    },
+    {
+     "team": "Los Angeles Kings",
+     "att": 0.801,
+     "def": 0.988
     },
     {
      "team": "San Jose Sharks",
-     "att": 0.945,
-     "def": 1.147
+     "att": 0.948,
+     "def": 1.172
     },
     {
      "team": "Chicago Blackhawks",
-     "att": 0.809,
-     "def": 1.147
+     "att": 0.844,
+     "def": 1.124
     },
     {
      "team": "Vancouver Canucks",
-     "att": 0.907,
-     "def": 1.359
+     "att": 0.896,
+     "def": 1.325
     },
     {
      "team": "Calgary Flames",
-     "att": 0.765,
-     "def": 1.219
+     "att": 0.79,
+     "def": 1.178
     }
    ]
   },
@@ -2054,7 +2054,7 @@
     },
     {
      "team": "San Antonio Spurs",
-     "off": 116.5,
+     "off": 116.4,
      "def": 110.2
     },
     {
@@ -2063,14 +2063,14 @@
      "def": 110.5
     },
     {
-     "team": "Boston Celtics",
-     "off": 113.5,
-     "def": 109.6
-    },
-    {
      "team": "Detroit Pistons",
      "off": 114.1,
      "def": 110.2
+    },
+    {
+     "team": "Boston Celtics",
+     "off": 113.5,
+     "def": 109.7
     },
     {
      "team": "Charlotte Hornets",
@@ -2085,7 +2085,7 @@
     {
      "team": "Houston Rockets",
      "off": 113.1,
-     "def": 111.0
+     "def": 111.1
     },
     {
      "team": "Toronto Raptors",
@@ -2098,14 +2098,14 @@
      "def": 113.7
     },
     {
-     "team": "Atlanta Hawks",
-     "off": 115.6,
-     "def": 114.6
-    },
-    {
      "team": "LA Clippers",
      "off": 114.1,
      "def": 113.1
+    },
+    {
+     "team": "Atlanta Hawks",
+     "off": 115.5,
+     "def": 114.6
     },
     {
      "team": "Los Angeles Lakers",
@@ -2120,7 +2120,7 @@
     {
      "team": "Minnesota Timberwolves",
      "off": 114.6,
-     "def": 113.8
+     "def": 113.9
     },
     {
      "team": "Team Stars",
@@ -2204,7 +2204,7 @@
     },
     {
      "team": "Brooklyn Nets",
-     "off": 109.3,
+     "off": 109.4,
      "def": 115.0
     },
     {
@@ -2261,7 +2261,7 @@
     {
      "team": "Besiktas Istanbul",
      "off": 88.6,
-     "def": 88.1
+     "def": 88.0
     },
     {
      "team": "FC Barcelona",
@@ -2301,7 +2301,7 @@
     {
      "team": "Anadolu Efes Istanbul",
      "off": 82.5,
-     "def": 84.2
+     "def": 84.3
     },
     {
      "team": "Paris Basketball",
@@ -2330,7 +2330,7 @@
     },
     {
      "team": "Armani Olimpia Milan",
-     "off": 83.0,
+     "off": 83.1,
      "def": 89.1
     }
    ]
