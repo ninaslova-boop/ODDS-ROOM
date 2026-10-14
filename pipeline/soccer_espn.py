@@ -93,6 +93,7 @@ UNKNOWN_STRENGTH = strength_from_coef(18.0)     # club from a league we do not k
 # 1X2 + O/U 2.5 log-loss 1.6460 with the old settings (ridge 3, k 1) -> 1.6188 with these.
 CUP_RIDGE = 15.0          # pull towards the domestic prior; higher = cup results move it less
 PRIOR_SCALE = 0.6         # share of a domestic rating that carries over to European games
+STRENGTH_SCALE = 1.0      # stretch of the league-strength scale (1 = the coefficient formula)
 CUP_HISTORY_DAYS = 800
 DOMESTIC_HISTORY_DAYS = 430
 DC_RHO = -0.06
@@ -152,14 +153,15 @@ def domestic_lookup(goal_ratings: dict) -> dict[str, tuple[str, str]]:
 
 def cup_priors(teams: list[str], goal_ratings: dict, espn_ratings: dict | None = None,
                k: float = PRIOR_SCALE, strengths: dict | None = None,
-               unknown: float | None = None) -> tuple[dict, dict]:
+               unknown: float | None = None, g: float | None = None) -> tuple[dict, dict]:
     """Start values (att, def) for cup teams and the domestic team each one maps to.
 
     prior = k * domestic rating + league strength / 2 (attack up, defence down).
     Order: football-data.co.uk divisions (fuzzy names), then ESPN domestic leagues (same
     source as the cup data, so names match exactly), then a small-nation default."""
-    strengths = LEAGUE_STRENGTH if strengths is None else strengths
-    unknown = UNKNOWN_STRENGTH if unknown is None else unknown
+    g = STRENGTH_SCALE if g is None else g
+    strengths = {c: v * g for c, v in (LEAGUE_STRENGTH if strengths is None else strengths).items()}
+    unknown = (UNKNOWN_STRENGTH if unknown is None else unknown) * g
     lookup = domestic_lookup(goal_ratings)
     names = list(lookup)
     espn_ratings = espn_ratings or {}
@@ -186,9 +188,9 @@ def cup_priors(teams: list[str], goal_ratings: dict, espn_ratings: dict | None =
 
 def fit_cup_model(hist: list[dict], teams: list[str], ref: dt.date, goal_ratings: dict,
                   espn_ratings: dict | None, ridge: float = CUP_RIDGE, k: float = PRIOR_SCALE,
-                  strengths: dict | None = None, unknown: float | None = None):
+                  strengths: dict | None = None, unknown: float | None = None, g: float | None = None):
     """One Poisson model over the three UEFA competitions, pulled towards domestic priors."""
-    prior, mapped = cup_priors(teams, goal_ratings, espn_ratings, k, strengths, unknown)
+    prior, mapped = cup_priors(teams, goal_ratings, espn_ratings, k, strengths, unknown, g)
     r = models.fit_poisson(hist, ref, half_life_days=300, ridge=ridge, prior=prior) if len(hist) >= 10 else None
     return r, prior, mapped
 
