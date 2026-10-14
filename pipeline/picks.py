@@ -42,7 +42,7 @@ def candidates(match: dict) -> list[dict]:
         e = edge(m["p"], o)
         if e is None or e < MIN_EDGE or e > MAX_EDGE or m["p"] < MIN_P or o > MAX_ODDS:
             continue
-        if m.get("odds_assumed"):
+        if m.get("odds_assumed") or m.get("unreliable"):
             continue
         if match["sport"] == "nhl" and m["scope"] == "match" and m["kind"] == "X":
             continue

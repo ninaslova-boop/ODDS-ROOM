@@ -262,6 +262,18 @@ function viewMatches(v) {
 }
 
 const STATUS_SL = { out: "ne igra", doubt: "vprašljiv" };
+const SRC_SL = { pinnacle: "Pinnacle", espn: "ESPN", avg: "povprečje stavnic" };
+function refText(x) {
+  const r = x.market_ref;
+  if (!r) return "";
+  const f = (k) => `${pct(r.model[k])} / ${pct(r.p[k])}`;
+  return `Model se od trga (${SRC_SL[r.src] || r.src}, brez marže) razlikuje za več kot 10 o. t.<br>` +
+    `1: ${f("1")} · X: ${f("X")} · 2: ${f("2")}${r.p["over2.5"] != null ? ` · O2.5: ${f("over2.5")}` : ""}<br>(model / trg)` +
+    (r.blend ? `<br>Prikazane verjetnosti: ${Math.round(r.blend.w_model * 100)} % model + ${100 - Math.round(r.blend.w_model * 100)} % Pinnacle.` : "");
+}
+function unreliableTag(m, x) {
+  return m.unreliable ? ` <span class="badge red" data-tip="${esc(refText(x))}">model nezanesljiv</span>` : "";
+}
 function absList(x, side) { return x.availability?.absent?.[side] || []; }
 function newsBadges(x) {
   const av = x.availability;
@@ -299,7 +311,7 @@ function availBlock(x) {
 function matchCard(x) {
   const sp = SPORTS[x.sport] || {};
   const isBall = x.sport === "nba" || x.sport === "euroleague";
-  const vals = x.markets.filter((m) => m.edge != null && m.edge >= 0.05 && m.p >= 0.4);
+  const vals = x.markets.filter((m) => m.edge != null && m.edge >= 0.05 && m.p >= 0.4 && !m.unreliable);
   const top = topEvents(x);
   const unit = isBall ? "točk" : "golov";
   const head = isBall
@@ -307,7 +319,7 @@ function matchCard(x) {
     : `<span>Najverjetnejši izid: <b>${x.top_scores?.[0]?.s}</b> (${pct(x.top_scores?.[0]?.p)})</span><span>Najverjetneje skupaj: <b>${x.total_mode} ${unit}</b></span><span>Pričakovano skupaj: <b>${fmtNum(x.exp[0] + x.exp[1], 2)}</b></span>`;
   return `<div class="card match" data-id="${esc(x.id)}">
     <div class="meta"><span>${sp.icon || ""} ${esc(x.league_name)}</span><span>·</span><span>${fmtTime(x.kickoff)}</span>
-      <span class="spacer"></span>${newsBadges(x)}${vals.length ? `<span class="badge amber">VALUE ×${vals.length}</span>` : ""}</div>
+      <span class="spacer"></span>${x.markets.some((m) => m.unreliable) ? `<span class="badge red" data-tip="${esc(refText(x))}">MODEL NEZANESLJIV</span> ` : ""}${newsBadges(x)}${vals.length ? `<span class="badge amber">VALUE ×${vals.length}</span>` : ""}</div>
     <div class="teams">
       <div>${esc(x.home)}${formChips(x.form?.home)}</div><div class="xg num">${expLbl(x, 0)}</div>
       <div>${esc(x.away)}${formChips(x.form?.away)}</div><div class="xg num">${expLbl(x, 1)}</div>
@@ -343,7 +355,7 @@ function matchDetails(x) {
     ${availBlock(x)}
     ${Object.entries(groups).map(([g, ms]) => `<h3>${esc(g)}</h3><div class="scroll"><table class="tbl">
       <tr><th>Dogodek</th><th>Verjetnost</th><th class="r">Fer kvota</th><th class="r">Kvota</th><th class="r">Prednost</th></tr>
-      ${ms.map((m) => `<tr class="${m.edge >= 0.05 ? "hl" : ""}"><td>${esc(slLabel(m, x))}</td><td>${pbar(m.p)}</td><td class="r num">${odds(m.fair)}</td><td class="r num">${odds(m.odds)}${m.odds_assumed ? "~" : ""}</td><td class="r num">${edgeCell(m.edge, m.odds_assumed)}</td></tr>`).join("")}
+      ${ms.map((m) => `<tr class="${m.edge >= 0.05 && !m.unreliable ? "hl" : ""}"><td>${esc(slLabel(m, x))}${unreliableTag(m, x)}</td><td>${pbar(m.p)}</td><td class="r num">${odds(m.fair)}</td><td class="r num">${odds(m.odds)}${m.odds_assumed ? "~" : ""}</td><td class="r num">${edgeCell(m.edge, m.odds_assumed)}</td></tr>`).join("")}
       </table></div>`).join("")}
     ${players}
   </div>`;
@@ -392,7 +404,7 @@ function viewRanking(v) {
     </div>
     <div class="card scroll" style="padding:4px 6px"><table class="tbl">
       <tr><th>#</th><th>Dogodek</th><th>Tekma</th><th>Čas</th><th>Verjetnost</th><th class="r">Fer</th><th class="r">Kvota</th><th class="r">Prednost</th></tr>
-      ${shown.map((e, i) => `<tr class="${e.edge >= 0.05 ? "hl" : ""}"><td class="faint num">${i + 1}</td><td>${SPORTS[e.sport]?.icon || ""} ${esc(e.title)}</td><td class="muted">${esc(e.sub)}</td><td class="muted" style="white-space:nowrap">${fmtTime(e.kickoff)}</td><td>${pbar(e.p)}</td><td class="r num">${odds(1 / e.p)}</td><td class="r num">${odds(e.odds)}</td><td class="r">${edgeCell(e.edge, e.assumed)}</td></tr>`).join("")}
+      ${shown.map((e, i) => `<tr class="${e.edge >= 0.05 && !e.m?.unreliable ? "hl" : ""}"><td class="faint num">${i + 1}</td><td>${SPORTS[e.sport]?.icon || ""} ${esc(e.title)}${e.m ? unreliableTag(e.m, e.match) : ""}</td><td class="muted">${esc(e.sub)}</td><td class="muted" style="white-space:nowrap">${fmtTime(e.kickoff)}</td><td>${pbar(e.p)}</td><td class="r num">${odds(1 / e.p)}</td><td class="r num">${odds(e.odds)}</td><td class="r">${edgeCell(e.edge, e.assumed)}</td></tr>`).join("")}
     </table>${ev.length > shown.length ? `<div class="muted" style="padding:8px;font-size:12px">Prikazanih ${shown.length} od ${ev.length}. Zoži filtre.</div>` : ""}
     ${!ev.length ? `<div class="empty">Ni dogodkov za te filtre.</div>` : ""}</div>`;
   const re = () => render();
@@ -409,19 +421,19 @@ function viewRanking(v) {
 /* ---------- view: value ---------- */
 function valueEvents() {
   return allEvents().filter((e) => e.edge != null && e.edge >= S.value.minEdge && e.p >= 0.3 && (S.value.inclAssumed || !e.assumed))
-    .sort((a, b) => b.edge - a.edge);
+    .sort((a, b) => (!!a.m?.unreliable - !!b.m?.unreliable) || b.edge - a.edge);
 }
 function viewValue(v) {
   const ev = valueEvents();
   v.innerHTML = `<h2>Value: model proti kvoti</h2>
-    <p class="section-note">Prednost = verjetnost × kvota − 1. Pozitivna prednost pomeni, da je kvota višja od fer kvote modela. Kvota z "~" je privzeta (-110), ker vir ni dal cene.</p>
+    <p class="section-note">Prednost = verjetnost × kvota − 1. Pozitivna prednost pomeni, da je kvota višja od fer kvote modela. Kvota z "~" je privzeta (-110), ker vir ni dal cene. Trgi z oznako "model nezanesljiv" (model se od Pinnaclea ali trga razlikuje za več kot 10 o. t.) niso value in se ne beležijo kot picki.</p>
     <div class="filters">
       <label>Min. prednost <span class="g" id="eV">${(S.value.minEdge * 100).toFixed(0)}%</span><input type="range" id="fEdge" min="0" max="0.3" step="0.01" value="${S.value.minEdge}"></label>
       <label style="flex-direction:row;align-items:center;gap:6px;text-transform:none;font-size:13px"><input type="checkbox" id="fAss" ${S.value.inclAssumed ? "checked" : ""}> vključi privzete kvote</label>
     </div>
     <div class="card scroll" style="padding:4px 6px"><table class="tbl">
       <tr><th>Dogodek</th><th>Tekma</th><th>Čas</th><th>Model</th><th class="r">Kvota</th><th class="r">Implicirano</th><th class="r">Prednost</th><th></th></tr>
-      ${ev.map((e, i) => `<tr><td>${SPORTS[e.sport]?.icon || ""} ${esc(e.title)}</td><td class="muted">${esc(e.sub)}</td><td class="muted" style="white-space:nowrap">${fmtTime(e.kickoff)}</td><td>${pbar(e.p)}</td><td class="r num">${odds(e.odds)}${e.assumed ? "~" : ""}</td><td class="r num">${pct(1 / e.odds)}</td><td class="r">${edgeCell(e.edge, e.assumed)}</td><td><button class="btn o s" data-post="${i}">Objava</button></td></tr>`).join("")}
+      ${ev.map((e, i) => `<tr><td>${SPORTS[e.sport]?.icon || ""} ${esc(e.title)}${e.m ? unreliableTag(e.m, e.match) : ""}</td><td class="muted">${esc(e.sub)}</td><td class="muted" style="white-space:nowrap">${fmtTime(e.kickoff)}</td><td>${pbar(e.p)}</td><td class="r num">${odds(e.odds)}${e.assumed ? "~" : ""}</td><td class="r num">${pct(1 / e.odds)}</td><td class="r">${edgeCell(e.edge, e.assumed)}</td><td><button class="btn o s" data-post="${i}">Objava</button></td></tr>`).join("")}
     </table>${!ev.length ? `<div class="empty"><b>Ni value dogodkov</b>Ni kvot ali pa model ne vidi prednosti. "Tiho = malo pickov."</div>` : ""}</div>`;
   $("#fEdge").oninput = (e) => { S.value.minEdge = +e.target.value; $("#eV").textContent = (S.value.minEdge * 100).toFixed(0) + "%"; };
   $("#fEdge").onchange = () => render();

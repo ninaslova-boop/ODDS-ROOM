@@ -14,7 +14,7 @@ import math
 
 from . import espn, models
 from .football import form_string, to_games
-from .util import match_name, now_utc, parse_iso
+from .util import CACHE_DIR, is_quick, match_name, now_utc, parse_iso, read_json
 
 log = logging.getLogger("pipeline.soccer_espn")
 
@@ -26,18 +26,52 @@ COMPETITIONS = {
     "UECL": ("uefa.europa.conf", "Konferenčna liga", "cup"),
 }
 
-# Rough league strength on the log-goal scale (from UEFA club coefficients).
+# Approximate UEFA country coefficients (5-season ranking, 2025/26).
+UEFA_COEF = {
+    "ENG": 100.0, "ITA": 89.0, "ESP": 87.0, "GER": 80.0, "FRA": 68.0, "NED": 60.0, "POR": 57.0,
+    "BEL": 52.0, "CZE": 46.0, "TUR": 42.0, "GRE": 37.0, "POL": 36.0, "NOR": 34.5, "DEN": 33.5,
+    "AUT": 32.0, "SUI": 31.0, "SCO": 30.5, "ISR": 28.0, "CYP": 27.0, "SWE": 25.5, "CRO": 25.0,
+    "SRB": 23.5, "UKR": 22.0, "HUN": 21.5, "SVN": 20.5, "ROU": 20.0, "SVK": 19.5, "BUL": 18.5,
+    "AZE": 18.0, "KAZ": 15.0, "IRL": 11.0,
+}
+
+
+def strength_from_coef(coef: float) -> float:
+    """League strength on the log-goal scale. Fitted to the hand-set values of the top leagues:
+    +0.36 for England (100 points) and -0.14 for Scotland (30.5 points)."""
+    return round(0.36 + 0.42 * (math.log(coef) - math.log(100.0)), 3)
+
+
+# Strength of the football-data.co.uk divisions (first tiers follow the formula closely;
+# second tiers are set by hand below their first tier).
 LEAGUE_STRENGTH = {
     "E0": 0.36, "SP1": 0.28, "I1": 0.26, "D1": 0.25, "F1": 0.16, "P1": 0.07, "N1": 0.06,
     "B1": -0.02, "T1": -0.04, "E1": -0.02, "G1": -0.12, "SC0": -0.14, "D2": -0.10,
     "I2": -0.18, "SP2": -0.14, "F2": -0.20,
 }
-UNKNOWN_STRENGTH = -0.30
+
+# Domestic leagues read from ESPN only to rate their clubs for the UEFA model.
+# code: (ESPN slug, country). Slugs that ESPN does not serve are skipped with a note.
+ESPN_DOMESTIC = {
+    "AUT": "aut.1", "NOR": "nor.1", "DEN": "den.1", "SWE": "swe.1", "SUI": "sui.1", "CZE": "cze.1",
+    "POL": "pol.1", "CRO": "cro.1", "SRB": "srb.1", "UKR": "ukr.1", "CYP": "cyp.1", "ISR": "isr.1",
+    "SVN": "svn.1", "ROU": "rou.1", "HUN": "hun.1", "BUL": "bul.1", "SVK": "svk.1", "AZE": "aze.1",
+    "KAZ": "kaz.1", "IRL": "irl.1",
+}
+for _c in ESPN_DOMESTIC:
+    LEAGUE_STRENGTH[_c] = strength_from_coef(UEFA_COEF[_c])
+UNKNOWN_STRENGTH = strength_from_coef(13.0)     # club from a league we do not read (small nations)
+
+# UEFA model settings (chosen by pipeline/backtest.py, see README)
+CUP_RIDGE = 12.0          # pull towards the domestic prior; higher = cup results move it less
+PRIOR_SCALE = 0.8         # share of a domestic rating that carries over to European games
+CUP_HISTORY_DAYS = 800
+DOMESTIC_HISTORY_DAYS = 430
 DC_RHO = -0.06
 
 
-def _windows(today: dt.date) -> list[tuple[dt.date, dt.date]]:
-    return [(today - dt.timedelta(days=430), today + dt.timedelta(days=8))]
+def _windows(today: dt.date, days: int = 430) -> list[tuple[dt.date, dt.date]]:
+    return [(today - dt.timedelta(days=days), today + dt.timedelta(days=8))]
 
 
 def _hist(games: dict) -> list[dict]:
@@ -88,22 +122,80 @@ def domestic_lookup(goal_ratings: dict) -> dict[str, tuple[str, str]]:
     return out
 
 
-def cup_priors(teams: list[str], goal_ratings: dict) -> tuple[dict, dict]:
-    """Start values (att, def) for cup teams and the domestic team each one maps to."""
+def cup_priors(teams: list[str], goal_ratings: dict, espn_ratings: dict | None = None,
+               k: float = PRIOR_SCALE, strengths: dict | None = None,
+               unknown: float | None = None) -> tuple[dict, dict]:
+    """Start values (att, def) for cup teams and the domestic team each one maps to.
+
+    prior = k * domestic rating + league strength / 2 (attack up, defence down).
+    Order: football-data.co.uk divisions (fuzzy names), then ESPN domestic leagues (same
+    source as the cup data, so names match exactly), then a small-nation default."""
+    strengths = LEAGUE_STRENGTH if strengths is None else strengths
+    unknown = UNKNOWN_STRENGTH if unknown is None else unknown
     lookup = domestic_lookup(goal_ratings)
     names = list(lookup)
+    espn_ratings = espn_ratings or {}
+    espn_lookup = {t: code for code, r in espn_ratings.items() for t in r.teams}
     prior, mapped = {}, {}
     for t in teams:
         hit = match_name(t, names, cutoff=0.86)
         if hit:
             div, dom = lookup[hit]
             r = goal_ratings[div]
-            s = LEAGUE_STRENGTH.get(div, UNKNOWN_STRENGTH)
-            prior[t] = (r.att.get(dom, 0) + s / 2, r.dfn.get(dom, 0) - s / 2)
-            mapped[t] = (div, dom)
+        elif t in espn_lookup:
+            div, dom = espn_lookup[t], t
+            r = espn_ratings[div]
         else:
-            prior[t] = (UNKNOWN_STRENGTH / 2, -UNKNOWN_STRENGTH / 2)
+            prior[t] = (unknown / 2, -unknown / 2)
+            continue
+        s = strengths.get(div, unknown)
+        prior[t] = (k * r.att.get(dom, 0) + s / 2, k * r.dfn.get(dom, 0) - s / 2)
+        mapped[t] = (div, dom)
     return prior, mapped
+
+
+def fit_cup_model(hist: list[dict], teams: list[str], ref: dt.date, goal_ratings: dict,
+                  espn_ratings: dict | None, ridge: float = CUP_RIDGE, k: float = PRIOR_SCALE,
+                  strengths: dict | None = None, unknown: float | None = None):
+    """One Poisson model over the three UEFA competitions, pulled towards domestic priors."""
+    prior, mapped = cup_priors(teams, goal_ratings, espn_ratings, k, strengths, unknown)
+    r = models.fit_poisson(hist, ref, half_life_days=300, ridge=ridge, prior=prior) if len(hist) >= 10 else None
+    return r, prior, mapped
+
+
+def predict_cup(r, prior: dict, h: str, a: str, neutral: bool = False) -> tuple[float, float]:
+    if r and h in r.att and a in r.att:
+        return r.expected(h, a, neutral=neutral)
+    # a team without cup history: use the priors directly
+    ph, pa = prior.get(h, (0, 0)), prior.get(a, (0, 0))
+    mu = r.mu if r else math.log(1.35)
+    hadv = 0 if neutral else (r.home if r else 0.2)
+    return math.exp(mu + hadv + ph[0] + pa[1]), math.exp(mu + pa[0] + ph[1])
+
+
+def fit_espn_domestic(today: dt.date, days: int = DOMESTIC_HISTORY_DAYS,
+                      ref: dt.date | None = None) -> tuple[dict, dict, list[str]]:
+    """Poisson ratings of the ESPN domestic leagues. Returns (ratings, history by code, errors)."""
+    ratings, hists, errors = {}, {}, []
+    for code, slug in ESPN_DOMESTIC.items():
+        try:
+            if is_quick():
+                # quick runs: domestic form changes slowly, read the cache only
+                games = read_json(CACHE_DIR / f"espn_{slug}.json", {"events": {}})["events"]
+                if not games:
+                    continue
+            else:
+                espn._fetch_range("soccer", slug, today - dt.timedelta(days=6), today)   # probe: is the slug served?
+                games = espn.update_games("soccer", slug, today, windows=_windows(today, days))
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"ESPN {slug}: {e}")
+            continue
+        hist = [x for x in _hist(games) if ref is None or x["date"] < ref]
+        hists[code] = hist
+        r = models.fit_poisson(hist, ref or today, half_life_days=200, ridge=5.0)
+        if r:
+            ratings[code] = r
+    return ratings, hists, errors
 
 
 def _match_entry(code: str, name: str, g: dict, lh: float, la: float, form: dict, extra: dict | None = None) -> dict:
@@ -128,7 +220,8 @@ def build(today: dt.date, fb: dict | None) -> dict:
     cup_code_of: dict[str, str] = {}
     for code, (slug, name, kind) in COMPETITIONS.items():
         try:
-            games = espn.update_games("soccer", slug, today, windows=_windows(today))
+            days = CUP_HISTORY_DAYS if kind == "cup" else 430
+            games = espn.update_games("soccer", slug, today, windows=_windows(today, days))
         except Exception as e:  # noqa: BLE001
             errors.append(f"ESPN {slug}: {e}")
             continue
@@ -153,28 +246,25 @@ def build(today: dt.date, fb: dict | None) -> dict:
                                         {"home": _form(hist, g["h"]), "away": _form(hist, g["a"])}))
 
     # one model for all UEFA competitions
+    upcoming = _upcoming(cup_games)
+    if not upcoming:
+        return {"matches": sorted(matches, key=lambda m: m["kickoff"]), "results": results, "errors": errors}
+    espn_ratings, espn_hists, e2 = fit_espn_domestic(today)
+    errors += e2
     hist = _hist(cup_games)
     teams = sorted({x["home"] for x in hist} | {x["away"] for x in hist} |
-                   {g["h"] for g in _upcoming(cup_games)} | {g["a"] for g in _upcoming(cup_games)})
-    prior, mapped = cup_priors(teams, goal_ratings)
-    for x in hist:
-        x["w"] = 1.0
-    r = models.fit_poisson(hist, today, half_life_days=300, ridge=3.0, prior=prior) if hist else None
+                   {g["h"] for g in upcoming} | {g["a"] for g in upcoming})
+    r, prior, mapped = fit_cup_model(hist, teams, today, goal_ratings, espn_ratings)
     cur_rows = (fb or {}).get("cur_rows", {})
-    for g in _upcoming(cup_games):
+    for g in upcoming:
         code = cup_code_of[g["id"]]
         h, a = g["h"], g["a"]
-        if r and h in r.att and a in r.att:
-            lh, la = r.expected(h, a, neutral=g.get("neutral", False))
-        else:
-            # no cup history: use the priors directly
-            ph, pa = prior.get(h, (0, 0)), prior.get(a, (0, 0))
-            mu = r.mu if r else math.log(1.35)
-            hadv = 0 if g.get("neutral") else (r.home if r else 0.2)
-            lh, la = math.exp(mu + hadv + ph[0] + pa[1]), math.exp(mu + pa[0] + ph[1])
+        lh, la = predict_cup(r, prior, h, a, neutral=g.get("neutral", False))
         form = {}
         for side, t in (("home", h), ("away", a)):
-            if t in mapped:
+            if t in mapped and mapped[t][0] in espn_hists:
+                form[side] = _form(espn_hists[mapped[t][0]], t)
+            elif t in mapped:
                 div, dom = mapped[t]
                 form[side] = form_string(to_games(cur_rows.get(div, []), "FTHG", "FTAG"), dom)
             else:
@@ -182,6 +272,7 @@ def build(today: dt.date, fb: dict | None) -> dict:
         extra = {"domestic": {side: (list(mapped[t]) if t in mapped else None) for side, t in (("home", h), ("away", a))}}
         matches.append(_match_entry(code, COMPETITIONS[code][1], g, lh, la, form, extra))
     unmapped = [t for t in teams if t not in mapped]
-    log.info("uefa cups: %d games, %d teams, %d without domestic rating", len(hist), len(teams), len(unmapped))
+    log.info("uefa cups: %d games, %d teams, %d without domestic rating: %s", len(hist), len(teams),
+             len(unmapped), ", ".join(unmapped[:30]))
     matches.sort(key=lambda m: m["kickoff"])
     return {"matches": matches, "results": results, "errors": errors}

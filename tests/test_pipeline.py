@@ -269,10 +269,40 @@ def test_adjust_confirmed_lineup_bench_and_start():
 def test_cup_priors_use_domestic_rating_and_league_strength():
     games, _, _ = simulate_league(rounds=2)
     r = models.fit_poisson(games, dt.date(2026, 6, 1), 10_000, 1.0)
-    prior, mapped = soccer_espn.cup_priors(["T1", "Unknown FC"], {"E0": r})
+    k = 0.8
+    prior, mapped = soccer_espn.cup_priors(["T1", "Unknown FC"], {"E0": r}, k=k)
     assert mapped["T1"] == ("E0", "T1")
-    assert prior["T1"][0] == pytest.approx(r.att["T1"] + soccer_espn.LEAGUE_STRENGTH["E0"] / 2)
+    assert prior["T1"][0] == pytest.approx(k * r.att["T1"] + soccer_espn.LEAGUE_STRENGTH["E0"] / 2)
     assert prior["Unknown FC"][0] < 0 < prior["Unknown FC"][1]
+
+
+def test_cup_priors_espn_domestic_league():
+    """A club from a league football-data.co.uk does not cover gets its ESPN domestic rating
+    plus its own league strength, not the small-nation default."""
+    games, _, _ = simulate_league(rounds=2)
+    games = [{**g, "home": "N" + g["home"], "away": "N" + g["away"]} for g in games]
+    nor = models.fit_poisson(games, dt.date(2026, 6, 1), 10_000, 1.0)
+    best = max(nor.att, key=nor.att.get)
+    prior, mapped = soccer_espn.cup_priors([best, "Nobody FC"], {}, {"NOR": nor}, k=1.0)
+    assert mapped[best] == ("NOR", best)
+    s = soccer_espn.LEAGUE_STRENGTH["NOR"]
+    assert prior[best][0] == pytest.approx(nor.att[best] + s / 2)
+    assert prior["Nobody FC"][0] == pytest.approx(soccer_espn.UNKNOWN_STRENGTH / 2)
+    assert soccer_espn.UNKNOWN_STRENGTH < s < soccer_espn.LEAGUE_STRENGTH["E0"]
+
+
+def test_league_strength_formula_matches_anchors():
+    assert soccer_espn.strength_from_coef(100) == pytest.approx(0.36)
+    assert soccer_espn.strength_from_coef(30.5) == pytest.approx(-0.14, abs=0.01)
+    vals = [soccer_espn.strength_from_coef(c) for c in (80, 50, 30, 20, 10)]
+    assert vals == sorted(vals, reverse=True)
+
+
+def test_fit_poisson_neutral_games_have_no_home_term():
+    games, _, _ = simulate_league(rounds=3)
+    neutral = [{**g, "neutral": True} for g in games]
+    r = models.fit_poisson(neutral, dt.date(2026, 6, 1), 10_000, 1.0)
+    assert abs(r.home) < 1e-3          # the home parameter has no data and stays at its tiny-ridge zero
 
 
 def test_live_alerts():
@@ -327,3 +357,65 @@ def test_espn_fixture_fallback(monkeypatch):
     csv_row = {"Div": "E0", "HomeTeam": "Arsenal", "AwayTeam": "Fulham", "_date": dt.date(2026, 10, 18), "AvgH": "1.4"}
     merged = football.merge_fixtures([csv_row], rows)
     assert len(merged) == 2 and merged[0]["_espn"]["id"] == "2" and merged[0]["AvgH"] == "1.4"
+
+
+# ---------------- market guard and blend ----------------
+from pipeline import market  # noqa: E402
+
+
+def test_no_vig():
+    p = market.no_vig({"1": 2.0, "X": 3.5, "2": 4.0}, ("1", "X", "2"))
+    assert sum(p.values()) == pytest.approx(1)
+    assert p["1"] == pytest.approx((1 / 2.0) / (1 / 2.0 + 1 / 3.5 + 1 / 4.0))
+    assert market.no_vig({"1": 2.0, "X": None, "2": 4.0}, ("1", "X", "2")) is None
+
+
+def test_fit_lambdas_round_trip():
+    M = models.score_matrix(1.9, 0.8, 10, -0.06)
+    target = market.model_probs(M)
+    lh, la = market.fit_lambdas(1.2, 1.2, {k: target[k] for k in ("1", "2", "over2.5")}, -0.06)
+    assert lh == pytest.approx(1.9, abs=0.02) and la == pytest.approx(0.8, abs=0.02)
+
+
+def _cup_match(lh, la, pin):
+    M = models.score_matrix(lh, la, 10, -0.06)
+    return {"id": "fbe:UCL:1", "sport": "football", "league": "UCL", "home": "Bodo/Glimt", "away": "Atalanta",
+            "kickoff": "2026-10-21T16:45:00Z", "exp": [lh, la], "odds_raw": {"pin": pin, "ml_home": 3.2},
+            "markets": models.goal_markets(M)}
+
+
+def test_market_guard_flags_and_blends_bodo_case():
+    # model about 50 % for the home win, Pinnacle about 31 % (example from 14 Oct 2026)
+    m = _cup_match(2.0, 1.0, {"1": 3.10, "X": 3.75, "2": 2.20, "over2.5": 1.80, "under2.5": 2.05})
+    raw = market.model_probs(models.score_matrix(2.0, 1.0, 10, -0.06))
+    st = market.apply([m], adjust._rebuild_football)
+    assert st == {"checked": 1, "flagged": 1, "blended": 1}
+    ref = m["market_ref"]
+    assert ref["src"] == "pinnacle" and ref["gap_1x2"] > market.GUARD_PP
+    home = next(x for x in m["markets"] if x["scope"] == "match" and x["kind"] == "1")
+    expected = market.W_MODEL * raw["1"] + (1 - market.W_MODEL) * ref["p"]["1"]
+    assert home["p"] == pytest.approx(expected, abs=0.01)          # blended
+    assert home["unreliable"] is True
+    assert all(x.get("unreliable") for x in m["markets"] if x["scope"] in ("match", "dnb", "spread"))
+    assert not any(x.get("unreliable") for x in m["markets"] if x["scope"] == "btts")
+
+
+def test_unreliable_market_is_not_logged_as_pick():
+    now = dt.datetime.now(dt.timezone.utc)
+    m = _cup_match(2.0, 1.0, {"1": 3.10, "X": 3.75, "2": 2.20})
+    m["kickoff"] = (now + dt.timedelta(hours=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    market.apply([m], adjust._rebuild_football)
+    for x in m["markets"]:
+        if x["scope"] == "match" and x["kind"] == "1":
+            x["odds"] = 3.2                                       # would look like a big edge
+    assert not any(c["scope"] == "match" for c in picks.candidates(m))
+
+
+def test_market_small_gap_not_flagged():
+    M = models.score_matrix(1.5, 1.1, 10, -0.06)
+    p = market.model_probs(M)
+    pin = {"1": 0.97 / p["1"], "X": 0.97 / p["X"], "2": 0.97 / p["2"]}
+    m = _cup_match(1.5, 1.1, pin)
+    st = market.apply([m], adjust._rebuild_football)
+    assert st["flagged"] == 0 and not any(x.get("unreliable") for x in m["markets"])
+    assert m["market_ref"]["gap_1x2"] < 0.01

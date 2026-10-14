@@ -51,12 +51,13 @@ def time_weight(d: dt.date, ref: dt.date, half_life_days: float) -> float:
 
 def fit_poisson(games: list[dict], ref_date: dt.date, half_life_days: float = 150.0,
                 ridge: float = 4.0, prior: dict[str, tuple[float, float]] | None = None,
-                iters: int = 60) -> PoissonRatings | None:
+                iters: int = 60, tol: float = 1e-7) -> PoissonRatings | None:
     """games: [{home, away, hc, ac, date: date, w: extra weight (optional)}]
     hc/ac = counts for the home / away team (goals, corners, ...).
 
     log E[hc] = mu + home + att[home] + def[away]
     log E[ac] = mu        + att[away] + def[home]
+    Games with "neutral": True get no home term.
     """
     games = [g for g in games if g.get("hc") is not None and g.get("ac") is not None]
     if len(games) < 10:
@@ -66,20 +67,24 @@ def fit_poisson(games: list[dict], ref_date: dt.date, half_life_days: float = 15
     idx = {t: i for i, t in enumerate(teams)}
     n = len(teams)
     p = 2 + 2 * n
-    rows, y, w = [], [], []
+    dummy = p                      # index of a zero column, used to pad rows with fewer entries
+    cols, y, w = [], [], []
     for g in games:
         wt = time_weight(g["date"], ref_date, half_life_days) * g.get("w", 1.0)
         if wt < 1e-4:
             continue
         hi, ai = idx[g["home"]], idx[g["away"]]
-        r1 = np.zeros(p); r1[0] = 1; r1[1] = 1; r1[2 + hi] = 1; r1[2 + n + ai] = 1
-        r2 = np.zeros(p); r2[0] = 1; r2[2 + ai] = 1; r2[2 + n + hi] = 1
-        rows += [r1, r2]
+        hcol = dummy if g.get("neutral") else 1
+        cols.append((0, hcol, 2 + hi, 2 + n + ai))
+        cols.append((0, dummy, 2 + ai, 2 + n + hi))
         y += [float(g["hc"]), float(g["ac"])]
         w += [wt, wt]
-    if len(rows) < 20:
+    if len(cols) < 20:
         return None
-    X = np.vstack(rows); y = np.array(y); w = np.array(w)
+    C = np.array(cols, dtype=np.int64); y = np.array(y); w = np.array(w)
+    # every (row, column) pair of the sparse design matrix, for X^T W X
+    ci = np.repeat(C, C.shape[1], axis=1).ravel()
+    cj = np.tile(C, (1, C.shape[1])).ravel()
 
     # ridge pulls att/def towards the prior mean (0 for unknown teams)
     pen = np.full(p, ridge); pen[:2] = 1e-6
@@ -88,22 +93,26 @@ def fit_poisson(games: list[dict], ref_date: dt.date, half_life_days: float = 15
         if t in idx:
             prior_vec[2 + idx[t]] = a
             prior_vec[2 + n + idx[t]] = d
-    P = np.diag(pen)
 
-    beta = np.zeros(p)
+    beta = np.zeros(p + 1)         # last entry stays 0 (dummy column)
     beta[0] = math.log(max(np.average(y, weights=w), 0.05))
     for _ in range(iters):
-        eta = np.clip(X @ beta, -10, 10)
+        eta = np.clip(beta[C].sum(axis=1), -10, 10)
         lam = np.exp(eta)
         z = eta + (y - lam) / lam
         W = w * lam
-        A = X.T @ (X * W[:, None]) + P
-        b = X.T @ (W * z) + P @ prior_vec
+        A = np.zeros((p + 1, p + 1))
+        np.add.at(A, (ci, cj), np.repeat(W, C.shape[1] ** 2))
+        b = np.zeros(p + 1)
+        np.add.at(b, C.ravel(), np.repeat(W * z, C.shape[1]))
+        A = A[:p, :p] + np.diag(pen)
+        b = b[:p] + pen * prior_vec
         new = np.linalg.solve(A, b)
-        if np.max(np.abs(new - beta)) < 1e-7:
-            beta = new
+        done = np.max(np.abs(new - beta[:p])) < tol
+        beta[:p] = new
+        if done:
             break
-        beta = new
+    beta = beta[:p]
 
     # identifiability: centre att and def, move the mean into mu
     att = beta[2:2 + n]; dfn = beta[2 + n:]
