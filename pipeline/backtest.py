@@ -153,11 +153,12 @@ def cups(today: dt.date):
     cps = checkpoints(start, today, 14)
 
     configs = {"staro (ridge 3, k 1, samo FD lige, neznani -0.30)": dict(ridge=3.0, k=1.0, strengths=OLD_STRENGTH,
-                                                                       unknown=-0.30, espn=False)}
-    configs["novo jakosti lig, staro ridge 3, k 1"] = dict(ridge=3.0, k=1.0, espn=True)
-    for rg in (8.0, 12.0, 15.0):
-        for k in (0.6, 0.8):
-            configs[f"novo ridge {rg:g}, k {k}"] = dict(ridge=rg, k=k, espn=True)
+                                                                       unknown=-0.30, espn=False, g=1.0)}
+    configs["novo ridge 15, k 0.6, g 1 (produkcija)"] = dict(ridge=15.0, k=0.6, espn=True, g=1.0)
+    for rg in (8.0, 15.0):
+        for k in (0.6, 1.0):
+            for gg in (1.5, 2.0, 2.5):
+                configs[f"novo ridge {rg:g}, k {k}, g {gg}"] = dict(ridge=rg, k=k, espn=True, g=gg)
     scores = {name: Score() for name in configs}
     mkt = Score()
     mkt_pairs = defaultdict(Score)       # each config on the games that have market prices
@@ -179,7 +180,8 @@ def cups(today: dt.date):
             r, prior, _ = soccer_espn.fit_cup_model(train, teams, t, goal_ratings,
                                                     espn_ratings if cfg["espn"] else None,
                                                     ridge=cfg["ridge"], k=cfg["k"],
-                                                    strengths=cfg.get("strengths"), unknown=cfg.get("unknown"))
+                                                    strengths=cfg.get("strengths"), unknown=cfg.get("unknown"),
+                                                    g=cfg.get("g"))
             for x in test:
                 p = probs(*soccer_espn.predict_cup(r, prior, x["home"], x["away"], x.get("neutral", False)))
                 scores[name].add(p, x["hc"], x["ac"])
@@ -203,18 +205,45 @@ def cups(today: dt.date):
             say(sc.row(name))
     else:
         say("Za pretekle pokalne tekme v predpomnilniku ni kvot, zato tržne reference ni.")
+    # agreement with the market on the coming games (ESPN prices without margin)
+    up = [g for g in cup_games.values() if not g.get("done") and g.get("odds", {}).get("ml_home")]
+    if up and per_cp:
+        goal_ratings = {div: r for div in football.LEAGUES if (r := fd.fit(div, today))}
+        espn_ratings = {c: r for c, games in dom_games.items()
+                        if (r := models.fit_poisson([x for x in games if x["date"] >= today - dt.timedelta(days=430)],
+                                                    today, half_life_days=200, ridge=5.0))}
+        train = [x for x in hist if x["date"] >= today - dt.timedelta(days=days)]
+        teams = sorted({x["home"] for x in train} | {x["away"] for x in train} | {g["h"] for g in up} | {g["a"] for g in up})
+        say()
+        say(f"Ujemanje s trgom na {len(up)} prihodnjih pokalnih tekmah (ESPN brez marže), povprečna |model − trg| pri 1X2:")
+        for name, cfg in configs.items():
+            r, prior, _ = soccer_espn.fit_cup_model(train, teams, today, goal_ratings, espn_ratings if cfg["espn"] else None,
+                                                    ridge=cfg["ridge"], k=cfg["k"], strengths=cfg.get("strengths"),
+                                                    unknown=cfg.get("unknown"), g=cfg.get("g"))
+            gaps, big = [], 0
+            for g in up:
+                o = g["odds"]
+                mp = market.no_vig({"1": o.get("ml_home"), "X": o.get("ml_draw"), "2": o.get("ml_away")}, ("1", "X", "2"))
+                if not mp:
+                    continue
+                p = probs(*soccer_espn.predict_cup(r, prior, g["h"], g["a"], g.get("neutral", False)))
+                gap = max(abs(p[k] - mp[k]) for k in ("1", "X", "2"))
+                gaps.append(gap); big += gap > 0.10
+            if gaps:
+                say(f"- {name}: povprečje {sum(gaps) / len(gaps) * 100:.1f} o. t., nad 10 o. t.: {big} od {len(gaps)}")
+
     def total(n):
         sc_ = scores[n]
         return sc_.ll / max(1, sc_.n) + (sc_.ll_ou / sc_.n_ou if sc_.n_ou else 0)
-    best = min((n for n in scores if n.startswith("novo ridge")), key=total)
+    best = min((n for n in scores if n.startswith("novo")), key=total)
     say()
     say("Skupna ocena = 1X2 log-loss + O/U 2.5 log-loss (nižje je bolje):")
     for n in scores:
         say(f"- {n}: {total(n):.4f}")
     say()
     say(f"Najboljša nastavitev: **{best}**")
-    rg, best_k = configs[best]["ridge"], configs[best]["k"]
-    return {"ridge": rg, "k": best_k}
+    rg, best_k, best_g = configs[best]["ridge"], configs[best]["k"], configs[best]["g"]
+    return {"ridge": rg, "k": best_k, "g": best_g}
 
 
 # --------------------------------------------------------------------------

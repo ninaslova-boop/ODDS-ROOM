@@ -44,7 +44,8 @@ Orodja za kanal **The Odds Room**.
   Poissonova porazdelitev. NBA: povprečje in raztros zadnjih 15 tekem.
 
 - **Evropska tekmovanja**: en Poissonov model za LP, EL in KL. Ekipa začne z oceno iz domače lige
-  (k = 0.6 domače ocene) + jakost lige (iz UEFA koeficientov), ridge 15 omeji vpliv malega vzorca pokalnih tekem.
+  (k = 0.6 domače ocene) + jakost lige (iz UEFA koeficientov, raztegnjena ×1.5), ridge 15 omeji vpliv malega
+  vzorca pokalnih tekem.
   Domače ocene: football-data.co.uk (16 lig) + ESPN (Avstrija, Norveška, Danska, Švedska, Švica, Češka, Ciper,
   Izrael, Romunija, Irska); za klube iz ostalih lig se uporabi jakost njihove lige.
 - **Varovalka trga**: če se model pri 1X2 ali O/U 2.5 od Pinnacla brez marže (sicer od ESPN ali povprečja
