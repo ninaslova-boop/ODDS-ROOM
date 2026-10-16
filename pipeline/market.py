@@ -7,6 +7,9 @@
   GUARD_PP on any main market (1X2 / moneyline, or the main total), the WHOLE match is
   unreliable: every market gets "unreliable": True and the match gets "unreliable": True.
   No pick is logged from it and it is not shown in "reliable" lists.
+* Calibration (before everything else): p_model is calibrated per sport (calibration.py, refit weekly);
+  the model parameters are moved to the calibrated main markets. "p_raw" keeps the uncalibrated value,
+  "p_model" is the calibrated one. The guard and the blend use the calibrated p_model.
 * Shrink to the market (all sports):
       p_final = w * p_model + (1 - w) * p_market
   with w = W[sport] (setting per sport, env MARKET_W_<SPORT>), or W_THIN for a thin market.
@@ -179,27 +182,74 @@ def is_unreliable(m: dict) -> bool:
     return bool(m.get("unreliable") or m.get("mismatch") or any(mk.get("unreliable") for mk in m["markets"]))
 
 
-def apply(matches: list[dict], rebuild) -> dict:
+def apply(matches: list[dict], rebuild, cal: dict | None = None) -> dict:
     """rebuild: {sport: fn(match, a, b)} that re-creates the markets of a match from its two parameters
-    (a callable alone is used for football). Returns counters for logging."""
+    (a callable alone is used for football). cal: {sport: calibration function} (default: data/calibration.json).
+    Order: calibrate p_model -> guard -> blend with the market. Returns counters for logging."""
     if callable(rebuild):
         rebuild = {"football": rebuild}
-    stats = {"checked": 0, "flagged": 0, "blended": 0}
+    if cal is None:
+        from . import calibration
+        cal = {sp: calibration.function(sp) for sp in ("football", *US_SPORTS)}
+    stats = {"checked": 0, "flagged": 0, "blended": 0, "calibrated": 0}
     for m in matches:
+        raw = _keep_model_p(m)
+        fn, rb = cal.get(m["sport"]), rebuild.get(m["sport"])
+        if fn and rb and m.get("exp"):
+            stats["calibrated"] += calibrate(m, fn, rb)
         before = _keep_model_p(m)
         if m["sport"] in US_SPORTS:
-            res = guard_us(m, rebuild.get(m["sport"]))
+            res = guard_us(m, rb)
         elif m["sport"] == "football" and m.get("exp"):
-            res = _football(m, rebuild.get("football"))
+            res = _football(m, rb)
         else:
             res = None
         _set_p_model(m, before)
+        for mk in m["markets"]:
+            mk["p_raw"] = round(raw.get(_key(mk), mk["p_model"]), 4)
         if res is None:
             continue
         stats["checked"] += 1
         stats["flagged"] += res["flagged"]
         stats["blended"] += res["blended"]
     return stats
+
+
+def _pair(fn, p: float) -> float:
+    """Calibrated probability of one side of a two-way market, so that both sides still sum to 1."""
+    a, b = fn(p), fn(1 - p)
+    return a / (a + b)
+
+
+def calibrate(m: dict, fn, rebuild) -> int:
+    """Move the model parameters so that the main markets match the calibrated probabilities.
+    Every other market follows from the same distribution. Returns 1 when the match was changed."""
+    lh, la = m["exp"]
+    if m["sport"] == "football":
+        raw = model_probs(models.score_matrix(lh, la, 10, -0.06))
+        c = {k: fn(raw[k]) for k in ("1", "X", "2")}
+        s = sum(c.values())
+        target = {k: v / s for k, v in c.items()}
+        target["over2.5"] = _pair(fn, raw["over2.5"])
+        new = fit_lambdas(lh, la, target, -0.06)
+    elif m["sport"] == "nhl":
+        line = (m.get("odds_raw") or {}).get("total") or 6.5
+        raw = nhl_probs(lh, la, line)
+        new = fit_params((lh, la), {"1": _pair(fn, raw["1"]), "over": _pair(fn, raw["over"])},
+                         lambda a, b: nhl_probs(a, b, line))
+    elif m.get("sd"):
+        sd_t, sd_m = m["sd"]
+        p1 = models.norm_cdf((lh - la) / sd_m)
+        margin = sd_m * _N.inv_cdf(min(max(_pair(fn, p1), 1e-4), 1 - 1e-4))
+        total = lh + la
+        new = ((total + margin) / 2, (total - margin) / 2)
+    else:
+        return 0
+    if abs(new[0] - lh) < 1e-4 and abs(new[1] - la) < 1e-4:
+        return 0
+    m["calibration"] = {"exp_raw": [round(lh, 3), round(la, 3)]}
+    rebuild(m, *new)
+    return 1
 
 
 def _football(m: dict, rebuild) -> dict | None:

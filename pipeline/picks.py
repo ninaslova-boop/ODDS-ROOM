@@ -121,7 +121,8 @@ def update(log_data: dict, matches: list[dict], results: dict) -> dict:
                 if (m["stat"], m["scope"], m["kind"], m.get("line")) == (stat, scope, kind, line):
                     tid = market_id(match["id"], m)
                     if tid not in have_tr:
-                        tracked.append([tid, match["sport"], m["p"], None, match["kickoff"]])
+                        # [id, sport, p_final, result, kickoff, raw p_model (for the calibration)]
+                        tracked.append([tid, match["sport"], m["p"], None, match["kickoff"], m.get("p_raw")])
                         have_tr.add(tid)
     repair(picks)
     # settle

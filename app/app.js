@@ -1233,6 +1233,25 @@ function viewPosts(v) {
 load();
 
 /* ---------- export for Claude ---------- */
+/* share of picks / candidates by odds band; warning when the slate is mostly underdogs */
+const ODDS_BANDS = [["<1.80", 0, 1.8], ["1.80–2.50", 1.8, 2.5], ["2.50–3.50", 2.5, 3.5], [">3.50", 3.5, 1e9]];
+function oddsBands(prices) {
+  const n = prices.length;
+  const cnt = ODDS_BANDS.map(([l, lo, hi]) => [l, prices.filter((o) => o >= lo && o < hi).length]);
+  const over = prices.filter((o) => o >= 2.5).length;
+  const line = n ? `Kvote pickov in kandidatov (${n}): ` + cnt.map(([l, c]) => `${l} ${Math.round((100 * c) / n)} %`).join(" · ") : "Kvote pickov: ni pickov.";
+  return { line, warn: n > 0 && over / n > 0.7, share: n ? over / n : 0 };
+}
+function calibLine() {
+  const c = S.data.meta.calibration;
+  const names = { football: "nogomet", nhl: "NHL", nba: "NBA", euroleague: "Euroliga" };
+  if (!c || !c.sports || !Object.keys(c.sports).length) return "Kalibracija p_model: še ni (prvi tedenski zagon validacije); p_model ni kalibriran.";
+  return `Kalibracija p_model (${c.fitted}): ` + Object.entries(names).map(([k, nm]) => {
+    const e = c.sports[k];
+    if (!e) return `${nm} ni`;
+    return e.method === "none" ? `${nm} brez (${e.reason || "ni izboljšave"})` : `${nm} ${e.method} (n=${e.n}, Brier ${fmtNum(e.raw, 4)} → ${fmtNum(e.cal, 4)})`;
+  }).join(" · ");
+}
 /* current w per sport (p_final = w × model + (1 − w) × market) */
 function wLine() {
   const w = S.data.meta.market_w || {};
@@ -1260,6 +1279,7 @@ function claudeExport(day, sport, withPlayers, allMatches) {
   if (noInj.length) L.push(`injury data: none → ${noInj.join(", ")} (za nogomet razen Premier League ni brezplačnega vira poškodb za tekočo sezono; postave ~1 h pred tekmo so upoštevane)`);
   if (notVal.length) L.push(`NOT VALIDATED (backtest manjka ali premalo tekem): ${notVal.join(", ")}`);
   L.push(wLine());
+  L.push(calibLine());
   const elPd = plData("euroleague");
   if (ms.some((x) => x.sport === "euroleague")) {
     L.push(elPd?.ok ? `EuroLeague player data: EuroLeague API, sezona ${elPd.season} (${elPd.games} tekem)` : `player data: none → EuroLeague${elPd?.reason ? ` (${elPd.reason})` : ""}`);
@@ -1315,6 +1335,10 @@ function claudeExport(day, sport, withPlayers, allMatches) {
     L.push("|---|---|---|---|---|---|---|---|---|");
     for (const { x, m, price, ev } of cand.slice(0, 30)) L.push(`| ${hm(x.kickoff)} | ${x.home} – ${x.away} (${x.league_name})${isValidated(x) ? "" : " [not validated]"} | ${slLabel(m, x)} | ${pfm(m)} | ${(1 / m.p).toFixed(2)} | ${odds(price)} | ${m.b365 ? "bet365" : "povprečje – preveri bet365"} | ${ev.toFixed(3)}${ev >= STRONG_EV ? " ◆" : ""} | ${refFor(x, m)} |`);
   } else L.push("Ni kandidatov.");
+  const bandPrices = cand.slice(0, 30).map((c) => c.price).concat(picks.map((p) => p.odds)).concat(myOpen.map((p) => p.odds));
+  const bands = oddsBands(bandPrices);
+  L.push(bands.line);
+  if (bands.warn) L.push(`⚠ UNDERDOG-HEAVY SLATE: ${Math.round(bands.share * 100)} % pickov in kandidatov ima kvoto ≥ 2.50. Model se največkrat moti prav pri teh; preveri vsakega posebej.`);
   L.push("");
 
   const mm = (S.data.mismatches || []).filter((m) => inDay(m.kickoff) && spOk(m.sport));
