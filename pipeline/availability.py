@@ -101,8 +101,23 @@ def espn_injuries(sport: str, league: str) -> dict[str, list[dict]]:
 # --------------------------------------------------------------------------
 # API-Football (optional)
 # --------------------------------------------------------------------------
+def clean_key(raw: str) -> str:
+    """Remove quotes, spaces and a pasted header name ("x-apisports-key: ...")."""
+    k = raw.strip().strip("\"'").strip()
+    for sep in (":", "="):
+        if sep in k:
+            k = k.rsplit(sep, 1)[1].strip().strip("\"'")
+    return k
+
+
+def key_shape(key: str) -> str:
+    """Length and character set of the key, never the key itself (for the error message)."""
+    hexa = all(c in "0123456789abcdefABCDEF" for c in key)
+    return f"ključ: {len(key)} znakov, {'hex' if hexa else 'črke+številke'}"
+
+
 def api_football_injuries(dates: list[dt.date]) -> list[dict]:
-    key = os.environ.get("API_FOOTBALL_KEY", "").strip()
+    key = clean_key(os.environ.get("API_FOOTBALL_KEY", ""))
     if not key:
         return []
     out = []
@@ -111,20 +126,22 @@ def api_football_injuries(dates: list[dt.date]) -> list[dict]:
              ("https://api-football-v1.p.rapidapi.com/v3/injuries",
               {"x-rapidapi-key": key, "x-rapidapi-host": "api-football-v1.p.rapidapi.com"})]
     for d in dates:
-        j, last_err = None, None
-        for url, headers in hosts:
+        j, fails = None, []
+        for (url, headers), name in zip(hosts, ("api-sports", "RapidAPI")):
             try:
                 j = cached_get(url, params={"date": d.isoformat()}, headers=headers)
             except Exception as e:  # noqa: BLE001 - RapidAPI answers 401/403 to a wrong key
-                last_err, j = e, None
+                fails.append(f"{name}: {str(e)[:60]}")
+                j = None
                 continue
             errs = j.get("errors") if isinstance(j, dict) else None
             if errs and (len(errs) if isinstance(errs, (list, dict)) else 1):
-                last_err, j = RuntimeError(f"API-Football: {errs}"), None
+                fails.append(f"{name}: {str(errs)[:90]}")
+                j = None
                 continue
             break
         if j is None:
-            raise last_err or RuntimeError("API-Football: no answer")
+            raise RuntimeError(" | ".join(fails) + f" | {key_shape(key)}")
         for r in j.get("response", []):
             pl, tm = r.get("player") or {}, r.get("team") or {}
             typ = (pl.get("type") or "").lower()
