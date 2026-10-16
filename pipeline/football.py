@@ -11,6 +11,7 @@ import io
 import logging
 import math
 
+from . import teams as teams_mod
 from . import espn, models
 from .util import CACHE_DIR, cached_get, match_name, parse_iso, to_float
 
@@ -42,42 +43,31 @@ ESPN_SLUG = {
 }
 
 
-def espn_fixtures(div: str, teams: list[str], today: dt.date, horizon_days: int) -> tuple[list[dict], list[str]]:
-    """Upcoming fixtures of a division from ESPN, as football-data.co.uk-like rows (team names mapped)."""
+def espn_fixtures(div: str, teams: list[str], today: dt.date, horizon_days: int, reg=None
+                  ) -> tuple[list[dict], set[dt.date]]:
+    """Upcoming ESPN games of a division. Each game gets rh / ra = the model team (None when not certain),
+    resolved by ESPN team id (teams.Registry). Returns (games, days ESPN answered)."""
     slug = ESPN_SLUG.get(div)
     if not slug:
-        return [], []
-    games, _, _ = espn._fetch_range("soccer", slug, today, today + dt.timedelta(days=horizon_days))
-    rows, unmatched = [], []
+        return [], set()
+    d1, d2 = today, today + dt.timedelta(days=horizon_days)
+    games, _, _ = espn._fetch_range("soccer", slug, d1, d2)
+    days = {d1 + dt.timedelta(days=i) for i in range((d2 - d1).days + 1)}
+    reg = reg or teams_mod.Registry()
+    out = []
     for g in games:
         if g.get("done") or not g.get("d"):
             continue
-        h = match_name(g["h"], teams)
-        a = match_name(g["a"], teams)
-        if not h or not a or h == a:
-            unmatched.append(f"{g['h']} - {g['a']}")
-            continue
         o = g.get("odds", {})
-        row = {"Div": div, "HomeTeam": h, "AwayTeam": a, "_date": parse_iso(g["d"]).date(),
-               "_kickoff": parse_iso(g["d"]).strftime("%Y-%m-%dT%H:%M:%SZ"), "_espn": {"slug": slug, "id": g["id"]},
-               "AvgH": o.get("ml_home"), "AvgD": o.get("ml_draw"), "AvgA": o.get("ml_away")}
+        odds = {"AvgH": o.get("ml_home"), "AvgD": o.get("ml_draw"), "AvgA": o.get("ml_away")}
         if o.get("total") == 2.5:
-            row["Avg>2.5"], row["Avg<2.5"] = o.get("over"), o.get("under")
-        rows.append(row)
-    return rows, unmatched
-
-
-def merge_fixtures(csv_rows: list[dict], espn_rows: list[dict]) -> list[dict]:
-    """football-data.co.uk rows win (better odds); ESPN adds missing games and its event id."""
-    out = list(csv_rows)
-    for e in espn_rows:
-        same = next((r for r in out if r["HomeTeam"] == e["HomeTeam"] and r["AwayTeam"] == e["AwayTeam"]
-                     and abs((r["_date"] - e["_date"]).days) <= 1), None)
-        if same:
-            same.setdefault("_espn", e["_espn"])
-        else:
-            out.append(e)
-    return out
+            odds["Avg>2.5"], odds["Avg<2.5"] = o.get("over"), o.get("under")
+        rh = reg.resolve("espn", slug, g.get("hid"), g["h"], teams)
+        ra = reg.resolve("espn", slug, g.get("aid"), g["a"], teams)
+        out.append({**g, "d": parse_iso(g["d"]).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "rh": rh, "ra": ra if ra != rh else None,
+                    "_espn": {"slug": slug, "id": g["id"]}, "_odds": {"Div": div, **odds}})
+    return out, days
 
 
 def season_code(d: dt.date) -> str:
@@ -155,6 +145,14 @@ def odds_from_row(r: dict) -> dict:
         "ah_away": first("AvgAHA", "B365AHA", "PAHA"),
     }
     out = {k: v for k, v in o.items() if v is not None}
+    # "Avg" columns are the average of many books; any other column is one book (a thin market)
+    if out.get("1") and not to_float(r.get("AvgH")):
+        out["n_books"] = 1
+    b365 = {k: to_float(r.get(c)) for k, c in (("1", "B365H"), ("X", "B365D"), ("2", "B365A"),
+                                               ("over2.5", "B365>2.5"), ("under2.5", "B365<2.5"))}
+    b365 = {k: v for k, v in b365.items() if v and v > 1}
+    if b365:
+        out["b365"] = b365
     pin = pinnacle_from_row(r)
     if pin:
         out["pin"] = pin
@@ -184,6 +182,7 @@ def attach_odds(markets: list[dict], odds: dict):
             key = f"{m['kind']}2.5"
         if key and key in odds:
             m["odds"] = round(odds[key], 3)
+    models.attach_b365(markets, odds.get("b365"))
 
 
 def form_string(games: list[dict], team: str, n: int = 6) -> list[dict]:
@@ -293,6 +292,8 @@ def build(today: dt.date, horizon_days: int = 7) -> dict:
         errors.append(f"fixtures.csv: {e}")
 
     matches, ratings_out, team_stats, results = [], {}, {}, {}
+    mismatches: list[dict] = []
+    reg = teams_mod.Registry()
     goal_ratings: dict[str, models.PoissonRatings] = {}
     shot_ratings: dict[str, models.PoissonRatings] = {}
     for div, d in data.items():
@@ -326,15 +327,20 @@ def build(today: dt.date, horizon_days: int = 7) -> dict:
                             "avg_goals": round(rg.league_avg * 2, 2), "table": rg.table()}
         all_games = to_games(cur, "FTHG", "FTAG")
         team_stats[div] = {}
-        fixtures = [r for r in fx_rows if r.get("Div") == div
+        fixtures = [{**r, "_kickoff": r.get("_kickoff") or kickoff_iso(r)} for r in fx_rows if r.get("Div") == div
                     and today <= r["_date"] <= today + dt.timedelta(days=horizon_days)]
+        # teams of this season only (relegated clubs of last season must not catch a name)
+        season_teams = sorted({t for r in cur for t in (r["HomeTeam"], r["AwayTeam"])}
+                              | {t for r in fixtures for t in (r["HomeTeam"], r["AwayTeam"])}) or rg.teams
         try:
-            e_rows, unmatched = espn_fixtures(div, rg.teams, today, horizon_days)
-            fixtures = merge_fixtures(fixtures, e_rows)
-            if unmatched:
-                errors.append(f"{div}: ESPN names not matched: {', '.join(unmatched[:4])}")
+            e_games, covered = espn_fixtures(div, season_teams, today, horizon_days, reg)
+            fixtures, bad = teams_mod.cross_check(fixtures, e_games, LEAGUES[div], covered)
+            for b in bad:
+                b["div"] = div
+            mismatches += bad
         except Exception as e:  # noqa: BLE001
             errors.append(f"{div} ESPN fixtures: {e}")
+            fixtures = [{**r, "_check": "single source"} for r in fixtures]
         for r in fixtures:
             h, a = r["HomeTeam"], r["AwayTeam"]
             if h not in rg.att or a not in rg.att:
@@ -368,6 +374,7 @@ def build(today: dt.date, horizon_days: int = 7) -> dict:
                 "id": match_key(div, r["_date"], h, a),
                 "sport": "football", "league": div, "league_name": LEAGUES[div],
                 "kickoff": kickoff, "home": h, "away": a, **({"espn": r["_espn"]} if r.get("_espn") else {}),
+                "check": r.get("_check"),
                 "exp": [round(lh, 2), round(la, 2)],
                 "extra": extra,
                 "top_scores": models.top_scores(M),
@@ -379,7 +386,9 @@ def build(today: dt.date, horizon_days: int = 7) -> dict:
                 "stats": {"home": team_stats[div][h], "away": team_stats[div][a]},
             })
     matches.sort(key=lambda m: m["kickoff"])
-    return {"matches": matches, "results": results, "ratings": ratings_out, "errors": errors,
+    reg.save()
+    errors += [f"team id: {c}" for c in reg.conflicts[:10]]
+    return {"matches": matches, "results": results, "ratings": ratings_out, "errors": errors, "mismatches": mismatches,
             "goal_ratings": goal_ratings, "shot_ratings": shot_ratings, "season_rows": {d: v["cur"] + v["prev"] for d, v in data.items()},
             "cur_rows": {d: v["cur"] for d, v in data.items()}}
 

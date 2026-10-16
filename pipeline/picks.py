@@ -1,10 +1,17 @@
-"""Pick log: every value pick is logged before kick-off, then settled from results.
+"""Pick log: every pick is logged before kick-off, then settled from results.
 
-Rules (honest log, nothing is deleted):
-* A pick is logged once, with the probability and price seen at that moment.
-* Settlement uses the final result: won (1), lost (0), push (None) or void (no result found).
-* "tracked" keeps model probabilities of a few key markets for every match,
-  so we can measure calibration even without a price.
+Pick rule (all sports): a pick is valid when p_final x bet365 odds > 1.00.
+* p_final = the probability after the shrink to the market (market.py); p_model is kept too.
+* Only real bet365 prices are used (football-data.co.uk B365 columns, or bet365 in The Odds API).
+  An average of books is never stored as the pick price. Without a bet365 price there is no
+  automatic pick; the user enters bet365 odds in the app (bet365 list).
+* "strong" = p_final x odds >= STRONG_EV. There are no other labels or tiers.
+* A match that is unreliable (model-market gap on a main market) or a DATA MISMATCH never
+  creates a pick. The check runs again at logging time.
+
+Honest log: a pick is logged once, with the probability and price seen at that moment, and
+nothing is deleted. "tracked" keeps model probabilities of a few key markets for every match,
+so we can measure calibration even without a price.
 """
 from __future__ import annotations
 
@@ -12,19 +19,21 @@ import datetime as dt
 import logging
 from zoneinfo import ZoneInfo
 
+from . import market as market_mod
 from . import models
 from .util import iso, now_utc, parse_iso
 
 log = logging.getLogger("pipeline.picks")
 LOCAL = ZoneInfo("Europe/Ljubljana")
 
-MIN_EDGE = 0.05
-MIN_P = 0.40
-MAX_ODDS = 4.5
-MAX_EDGE = 0.25          # a bigger edge usually means stale news or a model error, not value
+STRONG_EV = 1.10
 LOG_WINDOW_H = 30
 VOID_AFTER_DAYS = 10
 MAX_TRACKED = 8000
+
+
+def ev(p: float, odds: float | None) -> float | None:
+    return None if not odds else p * odds
 
 
 def edge(p: float, odds: float | None) -> float | None:
@@ -35,20 +44,24 @@ def market_id(match_id: str, m: dict) -> str:
     return f"{match_id}|{m['stat']}|{m['scope']}|{m['kind']}|{m.get('line')}"
 
 
+def is_pick(p_final: float, odds: float | None) -> bool:
+    return bool(odds) and p_final * odds > 1.0
+
+
 def candidates(match: dict) -> list[dict]:
+    """Markets of a match that pass the pick rule with a bet365 price, best first."""
+    if market_mod.is_unreliable(match):
+        return []
     out = []
     for m in match["markets"]:
-        o = m.get("odds")
-        e = edge(m["p"], o)
-        if e is None or e < MIN_EDGE or e > MAX_EDGE or m["p"] < MIN_P or o > MAX_ODDS:
-            continue
-        if m.get("odds_assumed") or m.get("unreliable"):
+        o = m.get("b365")
+        if not is_pick(m["p"], o) or m.get("unreliable"):
             continue
         if match["sport"] == "nhl" and m["scope"] == "match" and m["kind"] == "X":
             continue
-        out.append({**m, "edge": round(e, 4)})
-    # prefer edge, but a solid probability counts too
-    out.sort(key=lambda m: -(m["edge"] * m["p"]))
+        e = m["p"] * o
+        out.append({**m, "odds": o, "ev": round(e, 4), "edge": round(e - 1, 4), "strong": e >= STRONG_EV})
+    out.sort(key=lambda m: -m["ev"])
     return out
 
 
@@ -69,8 +82,6 @@ def update(log_data: dict, matches: list[dict], results: dict) -> dict:
     have = {p["id"] for p in picks}
     have_tr = {t[0] for t in tracked}
     now = now_utc()
-    totd_days = {p["day"] for p in picks if p.get("totd")}
-    new_today: dict[str, list[dict]] = {}
 
     for match in matches:
         t = parse_iso(match["kickoff"])
@@ -83,13 +94,16 @@ def update(log_data: dict, matches: list[dict], results: dict) -> dict:
             pid = market_id(match["id"], c)
             if pid in have or any(p["match"] == match["id"] for p in picks):
                 continue
+            # check again right before logging (the match may have been flagged in this run)
+            if market_mod.is_unreliable(match) or not is_pick(c["p"], c["odds"]):
+                continue
             pick = {**base, "id": pid, "label": c["label"], "group": c["group"], "stat": c["stat"],
-                    "scope": c["scope"], "kind": c["kind"], "line": c.get("line"), "p": c["p"], "odds": c["odds"],
-                    "odds_assumed": bool(c.get("odds_assumed")), "edge": c["edge"], "logged": iso(now),
-                    "result": None, "status": "open"}
+                    "scope": c["scope"], "kind": c["kind"], "line": c.get("line"), "p": c["p"],
+                    "p_model": c.get("p_model", c["p"]), "w": (match.get("blend") or {}).get("w", 1.0),
+                    "odds": c["odds"], "odds_src": "bet365", "ev": c["ev"], "edge": c["edge"],
+                    "strong": c["strong"], "logged": iso(now), "result": None, "status": "open"}
             picks.append(pick)
             have.add(pid)
-            new_today.setdefault(day, []).append(pick)
         for stat, scope, kind, line in TRACK_KEYS.get(match["sport"], []):
             for m in match["markets"]:
                 if (m["stat"], m["scope"], m["kind"], m.get("line")) == (stat, scope, kind, line):
@@ -97,14 +111,6 @@ def update(log_data: dict, matches: list[dict], results: dict) -> dict:
                     if tid not in have_tr:
                         tracked.append([tid, match["sport"], m["p"], None, match["kickoff"]])
                         have_tr.add(tid)
-    # Tip of the Day: the best new pick of a day without one
-    for day, lst in new_today.items():
-        if day in totd_days:
-            continue
-        best = max(lst, key=lambda p: p["edge"] * p["p"] if p["p"] >= 0.5 else -1)
-        if best["p"] >= 0.5:
-            best["totd"] = True
-
     # settle
     for p in picks:
         if p["status"] != "open":
@@ -179,7 +185,36 @@ def stats(picks: list[dict], tracked: list[list]) -> dict:
                             "pred": round(sum(p for p, _ in b) / len(b), 4), "act": round(sum(y for _, y in b) / len(b), 4)})
     brier = round(sum((p - y) ** 2 for p, y in pts) / len(pts), 4) if pts else None
     return {"all": _summary(picks), "by_sport": by_sport, "by_month": by_month,
-            "calibration": buckets, "tracked_n": len(pts), "tracked_brier": brier}
+            "calibration": buckets, "tracked_n": len(pts), "tracked_brier": brier,
+            "picks_calibration": _buckets([(p["p"], 1 if p["status"] == "won" else 0) for p in picks
+                                           if p["status"] in ("won", "lost")]),
+            "by_w": by_weight(picks)}
+
+
+def _buckets(pts: list[tuple[float, int]]) -> list[dict]:
+    out = []
+    for lo in range(0, 100, 10):
+        b = [(p, y) for p, y in pts if lo / 100 <= p < (lo + 10) / 100 or (lo == 90 and p == 1.0)]
+        if b:
+            out.append({"lo": lo / 100, "hi": (lo + 10) / 100, "n": len(b),
+                        "pred": round(sum(p for p, _ in b) / len(b), 4), "act": round(sum(y for _, y in b) / len(b), 4)})
+    return out
+
+
+def w_label(p: dict) -> str:
+    """Picks logged before the shrink rule have no "w": they are the old rule (edge 5-25 %, average odds)."""
+    if "w" not in p:
+        return "staro pravilo"
+    return f"w={p['w']:g}"
+
+
+def by_weight(picks: list[dict]) -> dict:
+    """Logged picks only: expected hit rate (mean p_final) against the actual one, and profit,
+    by sport and by w. Use it to tune w on real data."""
+    out: dict[str, dict] = {}
+    for p in picks:
+        out.setdefault(p["sport"], {}).setdefault(w_label(p), []).append(p)
+    return {sp: {w: _summary(lst) for w, lst in ws.items()} for sp, ws in out.items()}
 
 
 def live_alerts(picks_list: list[dict], matches: list[dict]):
@@ -192,6 +227,9 @@ def live_alerts(picks_list: list[dict], matches: list[dict]):
             continue
         m = by_id.get(p["match"])
         if not m:
+            continue
+        if market_mod.is_unreliable(m):
+            p["alert"] = {"level": "red", "text": "Tekma je zdaj nezanesljiva ali DATA MISMATCH."}
             continue
         cur = next((k for k in m["markets"] if (k["stat"], k["scope"], k["kind"], k.get("line")) ==
                     (p["stat"], p["scope"], p["kind"], p.get("line"))), None)

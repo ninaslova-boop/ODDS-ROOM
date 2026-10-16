@@ -18,6 +18,7 @@ log = logging.getLogger("pipeline.adjust")
 REPLACE = {"football": 0.45, "nba": 0.55, "euroleague": 0.55, "nhl": 0.6}   # share of a missing player's output a replacement keeps
 MIN_FACTOR = {"football": 0.72, "nba": 0.85, "euroleague": 0.85, "nhl": 0.85}
 SUB_MINUTES = 20
+PROBABLE = 0.85     # a listed player with a lower chance (day-to-day, questionable, doubtful) loses his events
 
 
 def _status(name: str, side_info: dict, lineup_side: dict | None) -> tuple[str, float]:
@@ -33,8 +34,8 @@ def _status(name: str, side_info: dict, lineup_side: dict | None) -> tuple[str, 
     for a in side_info:
         if find_player(name, [a["name"]]) or (a.get("short") and find_player(name, [a["short"]])):
             chance = (a.get("chance") if a.get("chance") is not None else (0 if a["status"] == "out" else 50)) / 100
-            if chance >= 0.75:
-                return "ok", 1.0           # likely to play: no change
+            if chance >= PROBABLE:
+                return "ok", 1.0           # "probable": no change
             return ("out" if chance <= 0.1 else "doubt"), chance
     return "ok", 1.0
 
@@ -155,7 +156,8 @@ def apply(matches: list[dict], player_out: dict[str, list], avail: dict[str, dic
 def _adjust_props(r: dict, sport: str, st: str, chance: float):
     nxt = r["next"]
     nxt["status"] = st
-    if st == "out":
+    if st in ("out", "doubt"):
+        # out, injured, suspended or doubtful in the latest feed: no player events
         r["props"] = None
         return
     if sport == "football" and nxt.get("lam"):
@@ -170,7 +172,4 @@ def _adjust_props(r: dict, sport: str, st: str, chance: float):
             r["props"] = players.football_props(*lam)
         elif st == "start" and not r.get("props"):
             r["props"] = players.football_props(*nxt["lam"])
-    elif st == "doubt" and r.get("props"):
-        # basketball / hockey: keep the line, scale probabilities by the chance to play
-        for p in r["props"]:
-            p["p"] = round(p["p"] * chance, 4)
+

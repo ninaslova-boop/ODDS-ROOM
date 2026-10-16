@@ -78,6 +78,7 @@ def _attach_us_odds(markets: list[dict], odds: dict):
             elif m["kind"] == "away" and m["line"] == -sh:
                 m["odds"] = odds.get("spread_away_odds") or ASSUMED_PRICE
                 m["odds_assumed"] = "spread_away_odds" not in odds
+    models.attach_b365(markets, odds.get("b365"))
 
 
 def _season_start(today: dt.date) -> dt.date:
@@ -246,4 +247,4 @@ def build_euroleague(today: dt.date) -> dict:
         })
     return {"matches": matches, "results": results, "errors": errors,
             "ratings": {"home_adv": round(r.home, 2), "avg_points": round(r.mu * 2, 1), "table": r.table()},
-            "model": r, "games": games}
+            "model": r, "games": games, "hist": hist}

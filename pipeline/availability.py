@@ -21,7 +21,10 @@ from .util import cached_get, http_get, match_name, norm_name, now_utc, parse_is
 
 log = logging.getLogger("pipeline.availability")
 
-LINEUP_BEFORE_MIN = 100   # ESPN publishes lineups about 60 minutes before kick-off
+LINEUP_BEFORE_MIN = 100
+# injury sources per league / sport of the last collect() run, e.g. {"E0": ["FPL"], "nba": ["ESPN"]}.
+# A key that is missing has no injury data (the export says "injury data: none").
+LAST_COVERAGE: dict[str, list[str]] = {}   # ESPN publishes lineups about 60 minutes before kick-off
 
 
 # --------------------------------------------------------------------------
@@ -237,11 +240,27 @@ def collect(matches: list[dict], today: dt.date, extra: dict[str, dict] | None =
             errors.append(f"{name}: {e}")
             return None
 
-    fpl = safe("FPL", fpl_absences) or {}
-    by_team["E0"] = fpl
-    by_team["nba"] = safe("ESPN NBA injuries", espn_injuries, "basketball", "nba") or {}
-    by_team["nhl"] = safe("ESPN NHL injuries", espn_injuries, "hockey", "nhl") or {}
+    cov: dict[str, list[str]] = {k: ["EuroLeague (izpuščene tekme)" if k == "euroleague" else k]
+                                 for k in (extra or {})}
+    fpl = safe("FPL", fpl_absences)
+    by_team["E0"] = fpl or {}
+    if fpl is not None:
+        cov.setdefault("E0", []).append("FPL")
+    for sp, sport, league in (("nba", "basketball", "nba"), ("nhl", "hockey", "nhl")):
+        got = safe(f"ESPN {league.upper()} injuries", espn_injuries, sport, league)
+        by_team[sp] = got or {}
+        if got is not None:
+            cov.setdefault(sp, []).append("ESPN")
+    n_err = len(errors)
     apif = safe("API-Football injuries", api_football_injuries, [today + dt.timedelta(days=i) for i in range(4)]) or []
+    if len(errors) == n_err and os.environ.get("API_FOOTBALL_KEY", "").strip():
+        for m in matches:
+            if m["sport"] == "football":
+                cov.setdefault(m["league"], [])
+                if "API-Football" not in cov[m["league"]]:
+                    cov[m["league"]].append("API-Football")
+    LAST_COVERAGE.clear()
+    LAST_COVERAGE.update(cov)
     lu = safe("ESPN lineups", lineups, matches) or {}
 
     out: dict[str, dict] = {}

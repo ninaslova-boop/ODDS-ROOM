@@ -10,8 +10,8 @@ import datetime as dt
 import logging
 import traceback
 
-from . import (adjust, availability, euroleague_players, football, goalies, market, odds_api, picks, players,
-               soccer_espn, sports)
+from . import (adjust, availability, checks, euroleague_players, football, goalies, market, odds_api, picks, players,
+               rest, soccer_espn, sports)
 from .util import CACHE_DIR, OUT_DIR, ROOT, RUN, iso, now_utc, parse_iso, read_json, setup_logging, write_json
 
 log = logging.getLogger("pipeline")
@@ -42,6 +42,22 @@ def _safe(name: str, fn, *args, errors: list, default=None):
         return default
 
 
+RECENT = CACHE_DIR / "recent_ids.json"
+RECENT_DAYS = 21
+
+
+def recent_results(matches: list[dict], results: dict) -> dict:
+    """Results of matches shown in the last RECENT_DAYS days (the app settles the user's bet365 picks
+    with them). The ids of shown matches are kept in a small cache."""
+    seen = read_json(RECENT, {}) or {}
+    for m in matches:
+        seen[m["id"]] = m["kickoff"]
+    cutoff = iso(now_utc() - dt.timedelta(days=RECENT_DAYS))
+    seen = {k: v for k, v in seen.items() if v >= cutoff}
+    write_json(RECENT, seen)
+    return {k: results[k] for k in seen if k in results}
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--sports", default=",".join(SPORTS))
@@ -59,6 +75,8 @@ def main(argv=None):
     player_out: dict[str, list] = {}
     ratings = {}
     nhl_hist = None
+    rest_inputs = []      # (sport, history, expected-function, rebuild)
+    mismatches: list[dict] = []
 
     if "football" in wanted:
         fb = _safe("football", football.build, today, errors=errors)
@@ -68,6 +86,7 @@ def main(argv=None):
         if fb:
             fb["extra_matches"] = sp["matches"] if sp else []
             all_matches += fb["matches"]; results.update(fb["results"]); ratings["football"] = fb["ratings"]
+            mismatches += [{**x, "sport": "football"} for x in fb.get("mismatches", [])]
             errors += fb["errors"][:30]
             pl = _safe("football players", players.football_players, today, fb, errors=errors, default=([], []))
             player_out["football"], perr = pl
@@ -81,6 +100,8 @@ def main(argv=None):
             all_matches += nhl["matches"]; results.update(nhl["results"]); ratings["nhl"] = nhl["ratings"]
             errors += nhl["errors"]
             nhl_hist = nhl.get("hist")
+            if nhl.get("model"):
+                rest_inputs.append(("nhl", nhl["hist"], nhl["model"].expected, adjust._rebuild_nhl))
             pl = _safe("nhl players", players.nhl_players, today, nhl, errors=errors, default=([], []))
             player_out["nhl"], perr = pl
             errors += perr
@@ -91,6 +112,8 @@ def main(argv=None):
         nba = _safe("nba", sports.build_basketball, today, "nba", errors=errors)
         if nba:
             all_matches += nba["matches"]; results.update(nba["results"]); ratings["nba"] = nba["ratings"]
+            if nba.get("model"):
+                rest_inputs.append(("nba", nba["hist"], nba["model"].expected, adjust._rebuild_basketball))
             errors += nba["errors"]
             games = read_json(CACHE_DIR / "espn_nba.json", {"events": {}})["events"]
             box = _safe("nba box", players.update_nba_boxes, games, errors=errors, default={"games": {}})
@@ -98,11 +121,13 @@ def main(argv=None):
         status["nba"] = {"matches": len(nba["matches"]) if nba else 0,
                          "players": len(player_out.get("nba", [])), "ok": bool(nba and nba.get("ratings"))}
 
-    el_absent = {}
+    el_absent = None          # None = no EuroLeague box scores, so no absence data
     if "euroleague" in wanted:
         el = _safe("euroleague", sports.build_euroleague, today, errors=errors)
         if el:
             all_matches += el["matches"]; results.update(el["results"]); ratings["euroleague"] = el["ratings"]
+            if el.get("model"):
+                rest_inputs.append(("euroleague", el["hist"], el["model"].expected, adjust._rebuild_basketball))
             errors += el["errors"]
             if el.get("games"):
                 box = _safe("euroleague box", euroleague_players.update_boxes, el["games"], errors=errors,
@@ -116,7 +141,8 @@ def main(argv=None):
     errors += odds_api.apply(all_matches)
 
     # lineups and injuries
-    av = _safe("availability", availability.collect, all_matches, today, {"euroleague": el_absent},
+    av = _safe("availability", availability.collect, all_matches, today,
+               {"euroleague": el_absent} if el_absent is not None else {},
                errors=errors, default=({}, []))
     avail, aerr = av
     errors += aerr
@@ -126,17 +152,36 @@ def main(argv=None):
         n_g = _safe("nhl goalies", goalies.apply, all_matches, today, nhl_hist, adjust._rebuild_nhl, errors=errors,
                     default=0)
         log.info("nhl goalies: %s matches adjusted", n_g)
+    for sport, hist, expected, rb in rest_inputs:
+        n_r = _safe(f"{sport} rest", rest.apply, all_matches, sport, hist, expected, rb, errors=errors, default=0)
+        log.info("%s rest days: %s matches adjusted", sport, n_r)
 
     # model against the market: guard and blend (football)
-    mst = _safe("market", market.apply, all_matches, adjust._rebuild_football, errors=errors, default={})
+    rebuild = {"football": adjust._rebuild_football, "nhl": adjust._rebuild_nhl,
+               "nba": adjust._rebuild_basketball, "euroleague": adjust._rebuild_basketball}
+    mst = _safe("market", market.apply, all_matches, rebuild, errors=errors, default={})
     log.info("market check: %s", mst)
 
-    # value info on each market
+    # two sources disagree on a fixture (The Odds API): DATA MISMATCH, no picks from it
+    for m in all_matches:
+        if m.get("mismatch"):
+            mismatches.append({"sport": m["sport"], "league": m.get("league_name"), "kickoff": m["kickoff"],
+                               "home": m["home"], "away": m["away"], "reason": m["mismatch"], "match": m["id"]})
+    # player events only from players of the two teams of the fixture
+    bad_players = checks.player_fixture_violations(player_out, all_matches)
+    if bad_players:
+        n_rm = checks.enforce_player_fixture(player_out, all_matches)
+        log.warning("player check: %d players unlinked (%s)", n_rm, "; ".join(bad_players[:5]))
+
+    # value info on each market (p = p_final)
     for m in all_matches:
         for mk in m["markets"]:
             mk["fair"] = round(1 / mk["p"], 2) if mk["p"] > 0.005 else None
             if mk.get("odds"):
                 mk["edge"] = round(mk["p"] * mk["odds"] - 1, 4)
+            if mk.get("b365"):
+                mk["ev"] = round(mk["p"] * mk["b365"], 4)
+                mk["strong"] = mk["ev"] >= picks.STRONG_EV
     all_matches.sort(key=lambda m: m["kickoff"])
 
     if RUN["mode"] == "full":
@@ -151,11 +196,14 @@ def main(argv=None):
     picks.live_alerts(log_data["picks"], all_matches)
 
     gen = iso(now_utc())
-    write_json(OUT_DIR / "matches.json", {"generated": gen, "matches": all_matches})
+    write_json(OUT_DIR / "matches.json", {"generated": gen, "matches": all_matches, "mismatches": mismatches})
+    write_json(OUT_DIR / "validation.json", read_json(ROOT / "data" / "validation.json", {}) or {"competitions": {}})
+    write_json(OUT_DIR / "results.json", {"generated": gen, "results": recent_results(all_matches, results)})
     write_json(OUT_DIR / "players.json", {"generated": gen, **player_out})
     write_json(OUT_DIR / "picks.json", {"generated": gen, "picks": log_data["picks"], "stats": log_data["stats"]})
     write_json(OUT_DIR / "meta.json", {"generated": gen, "today": today.isoformat(), "status": status,
                                        "mode": RUN["mode"], "news": len(avail),
+                                       "injury_sources": availability.LAST_COVERAGE,
                                        "errors": errors[:80], "ratings": ratings}, compact=False)
     (CACHE_DIR / "last_mode.txt").write_text(RUN["mode"], encoding="utf-8")
     log.info("done (%s): %d matches, %d errors", RUN["mode"], len(all_matches), len(errors))

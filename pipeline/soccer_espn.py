@@ -136,11 +136,15 @@ def attach_odds(markets: list[dict], odds: dict):
         if m["stat"] != "goals":
             continue
         if m["scope"] == "match":
-            o = {"1": odds.get("ml_home"), "X": odds.get("ml_draw"), "2": odds.get("ml_away")}.get(m["kind"])
+            o = (odds.get(m["kind"]) or
+                 {"1": odds.get("ml_home"), "X": odds.get("ml_draw"), "2": odds.get("ml_away")}.get(m["kind"]))
             if o:
                 m["odds"] = o
+        elif m["scope"] == "total" and m["line"] == 2.5 and odds.get(f"{m['kind']}2.5"):
+            m["odds"] = odds[f"{m['kind']}2.5"]
         elif m["scope"] == "total" and odds.get("total") == m["line"] and odds.get(m["kind"]):
             m["odds"] = odds[m["kind"]]
+    models.attach_b365(markets, odds.get("b365"))
 
 
 def domestic_lookup(goal_ratings: dict) -> dict[str, tuple[str, str]]:

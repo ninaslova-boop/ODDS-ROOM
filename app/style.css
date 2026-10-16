@@ -205,3 +205,9 @@ details summary{cursor:pointer}
 .modal .x{background:none;border:none;color:var(--muted);font-size:24px;cursor:pointer;line-height:1}
 
 .foot{text-align:center;color:var(--faint);font-size:12px;padding:20px 16px 40px}
+
+/* bet365 list */
+.b-in { width: 78px; padding: 6px 8px; border: 1px solid var(--line, #2a3a33); border-radius: 8px;
+  background: var(--surface, transparent); color: inherit; font: inherit; font-variant-numeric: tabular-nums; }
+.b-in:focus { outline: 2px solid var(--green, #3ad29f); outline-offset: 1px; }
+button.btn:disabled, button.btn[disabled] { opacity: .35; filter: grayscale(1); cursor: not-allowed; }

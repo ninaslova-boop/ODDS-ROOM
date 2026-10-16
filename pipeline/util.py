@@ -151,20 +151,56 @@ def norm_name(s: str) -> str:
     return ALIASES.get(s2, s2)
 
 
+# words that many clubs share: a name made of these alone never identifies a club
+GENERIC = {"deportivo", "real", "sporting", "athletic", "atletico", "racing", "union", "united", "city", "town",
+           "olympique", "dynamo", "dinamo", "lokomotiv", "spartak", "red", "star", "young", "boys", "inter", "fc",
+           "sport", "sports", "club", "cd", "cf", "rc", "sc", "ac", "as", "us", "ud", "sd", "b", "ii", "san", "st",
+           "saint", "santa", "borussia", "eintracht", "hertha", "academica", "unione", "vitoria", "nacional",
+           "rapid", "slavia", "sparta", "zenit", "wanderers", "rovers", "albion", "county", "hotspur", "palace",
+           "villa", "forest", "argyle", "orient"}
+FUZZY_MARGIN = 0.06
+
+
+def _distinct(n: str) -> bool:
+    return any(t not in GENERIC for t in n.split())
+
+
 def match_name(name: str, candidates: list[str], cutoff: float = 0.72) -> str | None:
-    """Return the best candidate for `name` using normalized names."""
+    """Return the candidate that is the same team as `name`, or None when it is not certain.
+
+    Rules (a wrong team is worse than no team):
+    1. exact match after normalization and aliases;
+    2. token containment ("tottenham" in "tottenham hotspur") only when the shorter name has a
+       word that is not generic ("deportivo" alone never matches) and exactly one candidate fits;
+    3. fuzzy match only when the best candidate is clearly better than the second one.
+    """
     if not candidates:
         return None
     n = norm_name(name)
     normed = {norm_name(c): c for c in candidates}
     if n in normed:
         return normed[n]
-    # token containment ("tottenham" vs "tottenham hotspur")
+    if not n or not _distinct(n):
+        return None
+    hits = []
     for k, c in normed.items():
-        if n and k and (n in k.split() or k in n.split() or n.startswith(k + " ") or k.startswith(n + " ")):
-            return c
-    best = difflib.get_close_matches(n, list(normed), n=1, cutoff=cutoff)
-    return normed[best[0]] if best else None
+        if not k:
+            continue
+        short = n if len(n) <= len(k) else k
+        if not _distinct(short):
+            continue
+        if n in k.split() or k in n.split() or n.startswith(k + " ") or k.startswith(n + " "):
+            hits.append(c)
+    if len(hits) == 1:
+        return hits[0]
+    if len(hits) > 1:
+        return None
+    scored = sorted(((difflib.SequenceMatcher(None, n, k).ratio(), k) for k in normed), reverse=True)
+    if not scored or scored[0][0] < cutoff:
+        return None
+    if len(scored) > 1 and scored[0][0] - scored[1][0] < FUZZY_MARGIN:
+        return None
+    return normed[scored[0][1]]
 
 
 # ---------- odds ----------
