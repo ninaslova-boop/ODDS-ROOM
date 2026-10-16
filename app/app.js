@@ -37,11 +37,17 @@ const STRONG_EV = 1.10;
 function isBad(x) { return !!(x.unreliable || x.mismatch || x.markets.some((m) => m.unreliable)); }
 /* p_final with p_model in brackets */
 function pfm(m) { return m.p_model != null && Math.abs(m.p_model - m.p) >= 0.005 ? `${pct(m.p)} (model ${pct(m.p_model)})` : pct(m.p); }
-function isValidated(x) { const v = S.data.validation?.[x.league]; return !!(v && v.validated); }
+function valEntry(k) {
+  const v = S.data.validation?.[k];
+  if (!v) return null;
+  const b = v.by_w?.[String(v.prod_w)] || Object.values(v.by_w || {})[0] || {};
+  return { ...v, ok: !!v.validated && (b.games_with_market || 0) >= 150, b };
+}
+function isValidated(x) { return !!valEntry(x.league)?.ok; }
 function validTag(x) {
-  const v = S.data.validation?.[x.league];
-  if (v && v.validated) return "";
-  return ` <span class="badge grey" data-tip="${v ? `Backtest ima premalo tekem (${v.games}).` : "Za to tekmovanje še ni backtesta."}">ni validirano</span>`;
+  const v = valEntry(x.league);
+  if (v?.ok) return "";
+  return ` <span class="badge grey" data-tip="${v ? (v.b.games_with_market ? `Backtest ima premalo tekem (${v.games}).` : "Backtest brez zgodovinskih kvot: pravila picka ni bilo mogoče preveriti.") : "Za to tekmovanje še ni backtesta."}">ni validirano</span>`;
 }
 
 /* ---------- exact line: probabilities from the model distribution (p_final parameters) ---------- */
@@ -897,13 +903,13 @@ function viewBacktest(v) {
     if (!e) return `<tr><td>${esc(nm)}</td><td colspan="8"><span class="badge grey">ni validirano</span> <span class="faint">backtest še ni narejen</span></td></tr>`;
     const b = e.by_w[String(e.prod_w)] || Object.values(e.by_w)[0];
     const grid = Object.values(e.by_w).map((x) => `w=${x.w}: ${x.picks} pickov, ROI ${roiTxt(x.roi)}, Brier ${fmtNum(x.brier_final, 3)}`).join("<br>");
-    return `<tr><td>${esc(nm)} ${e.validated ? "" : `<span class="badge grey">ni validirano</span>`}<div class="faint" style="font-size:12px">${esc(e.from)} – ${esc(e.to)}</div></td>
+    return `<tr><td>${esc(nm)} ${valEntry(k).ok ? "" : `<span class="badge grey">ni validirano</span>`}<div class="faint" style="font-size:12px">${esc(e.from)} – ${esc(e.to)}</div></td>
       <td class="r num">${e.games}</td><td class="r num">${fmtNum(b.brier_model, 3)}</td><td class="r num">${fmtNum(b.brier_final, 3)}</td><td class="r num">${fmtNum(b.brier_market, 3)}</td>
       <td class="r num">${b.picks}</td><td class="r num">${pct(b.hit, 1)} / ${pct(b.expected, 1)}</td><td class="r num" data-tip="${esc(grid)}">${roiTxt(b.roi)}</td>
       <td class="faint" style="font-size:12px">w=${b.w} · ${esc(e.odds_src)}${e.note ? `<br>${esc(e.note)}` : ""}</td></tr>`;
   }).join("");
   v.innerHTML = `<h2>Backtest po tekmovanjih</h2>
-    <p class="section-note">Walk-forward: model se vsakih 14 dni ponovno nauči samo iz preteklih tekem in napove naslednjih 14 dni. p_final = w × model + (1 − w) × trg brez marže (zaključne kvote). Pick = najboljši izid s p_final × kvota &gt; 1. Brier: nižje je bolje (model / p_final / trg). Zadetki: dejansko / pričakovano. ROI pri zaključnih kvotah. Tekmovanje brez backtesta ali z manj kot 150 tekmami je označeno <b>ni validirano</b>. Podrži na ROI za druge w.</p>
+    <p class="section-note">Walk-forward: model se vsakih 14 dni ponovno nauči samo iz preteklih tekem in napove naslednjih 14 dni. p_final = w × model + (1 − w) × trg brez marže (zaključne kvote). Pick = najboljši izid s p_final × kvota &gt; 1. Brier: nižje je bolje (model / p_final / trg). Zadetki: dejansko / pričakovano. ROI pri zaključnih kvotah. Tekmovanje brez backtesta, z manj kot 150 tekmami ali brez zgodovinskih kvot je označeno <b>ni validirano</b>. Podrži na ROI za druge w.</p>
     <div class="card scroll" style="padding:4px 6px"><table class="tbl stack">
       <tr><th>Tekmovanje</th><th class="r">Tekme</th><th class="r">Brier model</th><th class="r">Brier p_final</th><th class="r">Brier trg</th><th class="r">Picki</th><th class="r">Zadetki / pričak.</th><th class="r">ROI</th><th>Kvote</th></tr>
       ${rows}
@@ -943,7 +949,7 @@ function viewLog(v) {
     <div class="card scroll" style="padding:4px 6px"><table class="tbl">
       <tr><th>Dan</th><th>Tekma</th><th>Pick</th><th class="r">Model</th><th class="r">Kvota</th><th class="r">Prednost</th><th>Status</th></tr>
       ${list.map((p) => `<tr><td class="muted" style="white-space:nowrap">${p.day}</td><td>${SPORTS[p.sport]?.icon || ""} ${esc(p.home)} – ${esc(p.away)}</td>
-        <td>${esc(slLabel(p, p))}${p.strong ? " ◆" : ""}${p.odds_src ? "" : ` <span class="faint" data-tip="Staro pravilo: povprečna kvota.">staro</span>`}</td><td class="r num">${pct(p.p)}${p.p_model != null ? ` <span class="faint">(${pct(p.p_model)})</span>` : ""}</td><td class="r num">${odds(p.odds)}${p.odds_assumed ? "~" : ""}</td><td class="r">${edgeCell(p.edge, p.odds_assumed)}</td><td>${statusBadge(p.status)}${alertBadge(p)}</td></tr>`).join("")}
+        <td>${esc(slLabel(p, p))}${p.strong ? " ◆" : ""}${p.odds_src ? "" : ` <span class="faint" data-tip="Staro pravilo: povprečna kvota.">staro</span>`}</td><td class="r num">${pct(p.p)}${p.p_model != null ? ` <span class="faint">(${pct(p.p_model)})</span>` : ""}</td><td class="r num">${odds(p.odds)}${p.odds_assumed ? "~" : ""}</td><td class="r">${edgeCell(p.edge, p.odds_assumed)}</td><td>${statusBadge(p.status)}${p.void_reason ? ` <span class="faint" data-tip="${esc(p.void_reason)}">ⓘ</span>` : ""}${alertBadge(p)}</td></tr>`).join("")}
     </table>${!list.length ? `<div class="empty"><b>Dnevnik je prazen</b>Picki se zabeležijo samodejno ob naslednjih zagonih.</div>` : ""}</div>`;
   $("#lF").onchange = (e) => { S.log.filter = e.target.value; render(); };
 }

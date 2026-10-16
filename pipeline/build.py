@@ -192,6 +192,7 @@ def main(argv=None):
         # quick runs do not change the pick log (it is committed only by full runs)
         log_data = read_json(PICKS_LOG, {}) or {}
         log_data.setdefault("picks", [])
+        picks.repair(log_data["picks"])
         log_data["stats"] = picks.stats(log_data["picks"], log_data.get("tracked", []))
     picks.live_alerts(log_data["picks"], all_matches)
 

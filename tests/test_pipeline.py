@@ -810,3 +810,31 @@ def test_validation_book_pick_rule_and_scores():
     b2 = validate.Book(0.4)
     b2.add({"1": 0.7, "2": 0.3}, None, "1", {})
     assert b2.summary()["brier_final"] == pytest.approx(0.18) and b2.summary()["picks"] == 0
+
+
+def test_odds_api_name_variants_are_not_mismatches():
+    from pipeline import odds_api
+    pool = [{"home": "Omonia Nicosia", "away": "Benfica", "kickoff": "2026-10-22T19:00:00Z", "markets": []},
+            {"home": "Alaves", "away": "Levante", "kickoff": "2026-10-16T19:00:00Z", "markets": []},
+            {"home": "La Coruna", "away": "Celta", "kickoff": "2026-10-18T19:00:00Z", "markets": []}]
+    ev = {"commence_time": "2026-10-22T19:00:00Z", "home_team": "Omonoia FC", "away_team": "Benfica"}
+    m = odds_api.find_match(ev, pool)
+    assert m is pool[0] and "mismatch" not in m
+    # the other team is a different club we know: a real mismatch
+    ev2 = {"commence_time": "2026-10-16T19:00:00Z", "home_team": "Deportivo La Coruña", "away_team": "Levante"}
+    m2 = odds_api.find_match(ev2, pool)
+    assert m2 is pool[1] and "mismatch" in m2
+    assert match_name("Hertha Berlin", ["Hertha", "Holstein Kiel"]) == "Hertha"
+    assert match_name("RC Celta Fortuna", ["Celta B", "Tenerife"]) == "Celta B"
+
+
+def test_bet365_goal_prices_never_on_cards_or_corners():
+    mk = [{"stat": "goals", "scope": "total", "kind": "over", "line": 2.5, "p": 0.5},
+          {"stat": "cards", "scope": "total", "kind": "over", "line": 2.5, "p": 0.8},
+          {"stat": "corners", "scope": "total", "kind": "over", "line": 2.5, "p": 0.9},
+          {"stat": "goals", "scope": "home", "kind": "over", "line": 2.5, "p": 0.2}]
+    models.attach_b365(mk, {"over2.5": 1.9, "under2.5": 1.9, "tot": [["over", 2.5, 1.95]]})
+    assert mk[0]["b365"] == 1.95 and not any("b365" in x for x in mk[1:])
+    bad = [{"odds_src": "bet365", "stat": "cards", "status": "open"}, {"odds_src": "bet365", "stat": "goals", "status": "open"}]
+    picks.repair(bad)
+    assert bad[0]["status"] == "void" and "kartoni" not in bad[0]["void_reason"] and bad[1]["status"] == "open"

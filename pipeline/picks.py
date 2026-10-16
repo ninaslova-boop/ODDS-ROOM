@@ -111,6 +111,7 @@ def update(log_data: dict, matches: list[dict], results: dict) -> dict:
                     if tid not in have_tr:
                         tracked.append([tid, match["sport"], m["p"], None, match["kickoff"]])
                         have_tr.add(tid)
+    repair(picks)
     # settle
     for p in picks:
         if p["status"] != "open":
@@ -136,6 +137,17 @@ def update(log_data: dict, matches: list[dict], results: dict) -> dict:
         t[3] = -1 if r is None else r
     tracked = tracked[-MAX_TRACKED:]
     return {"picks": picks, "tracked": tracked, "stats": stats(picks, tracked), "updated": iso(now)}
+
+
+def repair(picks: list[dict]):
+    """Picks that were logged with a wrong price because of a data bug are voided, with the reason.
+    Nothing is deleted. 16 Oct 2026: bet365 goal prices (over / under 2.5) were attached to the
+    cards and corners totals 2.5."""
+    for p in picks:
+        if p.get("odds_src") == "bet365" and p.get("stat") not in ("goals", "points") and p["status"] != "void":
+            p["status"] = "void"
+            p["result"] = None
+            p["void_reason"] = "napaka podatkov: kvota bet365 za gole je bila pripisana trgu " + str(p.get("stat"))
 
 
 def _settle_one(match_id: str, sport: str, market: dict, results: dict):
