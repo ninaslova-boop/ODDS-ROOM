@@ -73,6 +73,7 @@ def apply(matches: list[dict]) -> list[str]:
             h2h: dict[str, list] = {}
             totals: dict[tuple[str, float], list] = {}
             pin: dict[str, float] = {}
+            pin_tot: dict[tuple[str, float], float] = {}
             for b in ev.get("bookmakers", []):
                 is_pin = b.get("key") == "pinnacle"
                 for mk in b.get("markets", []):
@@ -84,8 +85,10 @@ def apply(matches: list[dict]) -> list[str]:
                                 pin[side] = o.get("price")
                         elif mk["key"] == "totals" and o.get("point") is not None:
                             totals.setdefault((o["name"].lower(), float(o["point"])), []).append(o.get("price"))
-                            if is_pin and float(o["point"]) == 2.5:
-                                pin[f"{o['name'].lower()}2.5"] = o.get("price")
+                            if is_pin:
+                                pin_tot[(o["name"].lower(), float(o["point"]))] = o.get("price")
+                                if float(o["point"]) == 2.5:
+                                    pin[f"{o['name'].lower()}2.5"] = o.get("price")
             if m["sport"] == "football" and all(k in pin for k in ("1", "X", "2")):
                 m.setdefault("odds_raw", {})["pin"] = pin
             prices = {
@@ -104,5 +107,28 @@ def apply(matches: list[dict]) -> list[str]:
                     if p:
                         mk["odds"] = p
                         mk.pop("odds_assumed", None)
-            m.setdefault("odds_raw", {})["source"] = "the-odds-api"
+            raw = m.setdefault("odds_raw", {})
+            raw["source"] = "the-odds-api"
+            if m["sport"] in ("nhl", "nba", "euroleague"):
+                us_reference(raw, ev, h2h, totals, pin, pin_tot)
     return errors
+
+
+def us_reference(raw: dict, ev: dict, h2h: dict, totals: dict, pin: dict, pin_tot: dict):
+    """Moneyline and main total for the NHL / NBA / EuroLeague market guard.
+    Pinnacle when it is listed, else the average of all books."""
+    use_pin = "1" in pin and "2" in pin
+    raw["ml_home"] = pin["1"] if use_pin else _avg(h2h.get(ev["home_team"], []))
+    raw["ml_away"] = pin["2"] if use_pin else _avg(h2h.get(ev["away_team"], []))
+    # main total line = the line most books offer
+    lines: dict[float, int] = {}
+    for (side, pt), prices in totals.items():
+        if side == "over":
+            lines[pt] = len(prices)
+    if lines:
+        line = max(lines, key=lambda pt: (lines[pt], -abs(pt % 1 - 0.5)))
+        po, pu = pin_tot.get(("over", line)), pin_tot.get(("under", line))
+        raw["total"] = line
+        raw["over"] = po if po and pu else _avg(totals.get(("over", line), []))
+        raw["under"] = pu if po and pu else _avg(totals.get(("under", line), []))
+    raw["ref_src"] = "pinnacle" if use_pin else "avg"

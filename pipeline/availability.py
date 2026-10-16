@@ -106,12 +106,25 @@ def api_football_injuries(dates: list[dt.date]) -> list[dict]:
     if not key:
         return []
     out = []
+    # keys from dashboard.api-football.com use the direct host, keys from RapidAPI use the RapidAPI host
+    hosts = [("https://v3.football.api-sports.io/injuries", {"x-apisports-key": key}),
+             ("https://api-football-v1.p.rapidapi.com/v3/injuries",
+              {"x-rapidapi-key": key, "x-rapidapi-host": "api-football-v1.p.rapidapi.com"})]
     for d in dates:
-        j = cached_get("https://v3.football.api-sports.io/injuries", params={"date": d.isoformat()},
-                       headers={"x-apisports-key": key})
-        errs = j.get("errors")
-        if errs and (len(errs) if isinstance(errs, (list, dict)) else 1):
-            raise RuntimeError(f"API-Football: {errs}")
+        j, last_err = None, None
+        for url, headers in hosts:
+            try:
+                j = cached_get(url, params={"date": d.isoformat()}, headers=headers)
+            except Exception as e:  # noqa: BLE001 - RapidAPI answers 401/403 to a wrong key
+                last_err, j = e, None
+                continue
+            errs = j.get("errors") if isinstance(j, dict) else None
+            if errs and (len(errs) if isinstance(errs, (list, dict)) else 1):
+                last_err, j = RuntimeError(f"API-Football: {errs}"), None
+                continue
+            break
+        if j is None:
+            raise last_err or RuntimeError("API-Football: no answer")
         for r in j.get("response", []):
             pl, tm = r.get("player") or {}, r.get("team") or {}
             typ = (pl.get("type") or "").lower()
