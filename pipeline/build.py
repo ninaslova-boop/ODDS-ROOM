@@ -10,7 +10,8 @@ import datetime as dt
 import logging
 import traceback
 
-from . import adjust, availability, football, market, odds_api, picks, players, soccer_espn, sports
+from . import (adjust, availability, euroleague_players, football, goalies, market, odds_api, picks, players,
+               soccer_espn, sports)
 from .util import CACHE_DIR, OUT_DIR, ROOT, RUN, iso, now_utc, parse_iso, read_json, setup_logging, write_json
 
 log = logging.getLogger("pipeline")
@@ -57,6 +58,7 @@ def main(argv=None):
     all_matches, results = [], {}
     player_out: dict[str, list] = {}
     ratings = {}
+    nhl_hist = None
 
     if "football" in wanted:
         fb = _safe("football", football.build, today, errors=errors)
@@ -78,6 +80,7 @@ def main(argv=None):
         if nhl:
             all_matches += nhl["matches"]; results.update(nhl["results"]); ratings["nhl"] = nhl["ratings"]
             errors += nhl["errors"]
+            nhl_hist = nhl.get("hist")
             pl = _safe("nhl players", players.nhl_players, today, nhl, errors=errors, default=([], []))
             player_out["nhl"], perr = pl
             errors += perr
@@ -95,21 +98,34 @@ def main(argv=None):
         status["nba"] = {"matches": len(nba["matches"]) if nba else 0,
                          "players": len(player_out.get("nba", [])), "ok": bool(nba and nba.get("ratings"))}
 
+    el_absent = {}
     if "euroleague" in wanted:
         el = _safe("euroleague", sports.build_euroleague, today, errors=errors)
         if el:
             all_matches += el["matches"]; results.update(el["results"]); ratings["euroleague"] = el["ratings"]
             errors += el["errors"]
-        status["euroleague"] = {"matches": len(el["matches"]) if el else 0, "ok": bool(el and el.get("ratings"))}
+            if el.get("games"):
+                box = _safe("euroleague box", euroleague_players.update_boxes, el["games"], errors=errors,
+                            default={"games": {}})
+                player_out["euroleague"] = _safe("euroleague players", euroleague_players.players, el, box,
+                                                 sports._season_start(today), errors=errors, default=[])
+                el_absent = euroleague_players.absences(player_out["euroleague"] or [], box)
+        status["euroleague"] = {"matches": len(el["matches"]) if el else 0,
+                                "players": len(player_out.get("euroleague", [])), "ok": bool(el and el.get("ratings"))}
 
     errors += odds_api.apply(all_matches)
 
     # lineups and injuries
-    av = _safe("availability", availability.collect, all_matches, today, errors=errors, default=({}, []))
+    av = _safe("availability", availability.collect, all_matches, today, {"euroleague": el_absent},
+               errors=errors, default=({}, []))
     avail, aerr = av
     errors += aerr
     n_adj = _safe("adjust", adjust.apply, all_matches, player_out, avail, errors=errors, default=0)
     log.info("availability: %d matches with news, %d adjusted", len(avail), n_adj or 0)
+    if nhl_hist is not None:
+        n_g = _safe("nhl goalies", goalies.apply, all_matches, today, nhl_hist, adjust._rebuild_nhl, errors=errors,
+                    default=0)
+        log.info("nhl goalies: %s matches adjusted", n_g)
 
     # model against the market: guard and blend (football)
     mst = _safe("market", market.apply, all_matches, adjust._rebuild_football, errors=errors, default={})

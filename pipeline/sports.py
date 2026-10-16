@@ -199,7 +199,7 @@ def _el_parse(g: dict) -> dict | None:
         return {"id": str(g.get("identifier") or g.get("gameCode") or g.get("id")), "d": d,
                 "h": h, "a": a, "hs": to_float(loc.get("score")) if played else None,
                 "as": to_float(road.get("score")) if played else None, "done": played,
-                "st": 2, "phase": (g.get("phaseType") or {}).get("code")}
+                "st": 2, "phase": (g.get("phaseType") or {}).get("code"), "code": g.get("gameCode")}
     except (KeyError, TypeError, AttributeError):
         return None
 
@@ -215,7 +215,7 @@ def build_euroleague(today: dt.date) -> dict:
                 if g:
                     if not g["d"].endswith("Z") and "+" not in g["d"][10:]:
                         g["d"] = g["d"][:19] + "Z"
-                    games[f"{yr}-{g['id']}"] = {**g, "id": f"{yr}-{g['id']}"}
+                    games[f"{yr}-{g['id']}"] = {**g, "id": f"{yr}-{g['id']}", "yr": yr}
         except Exception as e:  # noqa: BLE001
             errors.append(f"EuroLeague E{yr}: {e}")
     if not games:
@@ -245,4 +245,5 @@ def build_euroleague(today: dt.date) -> dict:
             "stats": {"home": _team_avgs(hist, hh, start), "away": _team_avgs(hist, aa, start)},
         })
     return {"matches": matches, "results": results, "errors": errors,
-            "ratings": {"home_adv": round(r.home, 2), "avg_points": round(r.mu * 2, 1), "table": r.table()}}
+            "ratings": {"home_adv": round(r.home, 2), "avg_points": round(r.mu * 2, 1), "table": r.table()},
+            "model": r, "games": games}

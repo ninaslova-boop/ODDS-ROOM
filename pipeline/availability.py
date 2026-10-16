@@ -223,10 +223,12 @@ def lineups(matches: list[dict]) -> dict[str, dict]:
 
 
 # --------------------------------------------------------------------------
-def collect(matches: list[dict], today: dt.date) -> tuple[dict[str, dict], list[str]]:
-    """Return ({match id: {"lineup": ..., "absent": {"home": [...], "away": [...]}}}, errors)."""
+def collect(matches: list[dict], today: dt.date, extra: dict[str, dict] | None = None
+            ) -> tuple[dict[str, dict], list[str]]:
+    """Return ({match id: {"lineup": ..., "absent": {"home": [...], "away": [...]}}}, errors).
+    extra: more absences by league / sport key, e.g. {"euroleague": {team: [...]}}."""
     errors = []
-    by_team: dict[str, dict[str, list[dict]]] = {}     # sport -> team -> absences
+    by_team: dict[str, dict[str, list[dict]]] = {k: v for k, v in (extra or {}).items() if v}
 
     def safe(name, fn, *a):
         try:

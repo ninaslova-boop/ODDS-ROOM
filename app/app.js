@@ -301,9 +301,21 @@ function adjText(x) {
     return `${x[side]}: napad ${Math.round((f - 1) * 100)} %${miss.length ? ` (brez: ${miss.slice(0, 4).join(", ")})` : ""}`;
   }).join(" · ");
 }
+function goalieText(g) {
+  if (!g) return "";
+  const eff = Math.round((1 - g.factor) * 100);
+  return `${esc(g.name)} · obr. ${(g.sv * 100).toFixed(1)} % · verjetnost ${Math.round(g.p * 100)} %` +
+    (g.b2b ? " · 2. tekma v 2 dneh" : "") + (g.alt && g.p < 0.75 ? ` · lahko ${esc(g.alt)}` : "") +
+    (Math.abs(eff) >= 1 ? ` · nasprotnik ${eff > 0 ? "−" : "+"}${Math.abs(eff)} % golov` : "");
+}
+function goalieBlock(x) {
+  if (!x.goalies) return "";
+  return `<h4>Verjetna vratarja</h4><p class="note">NHL vratarja ne objavi vnaprej. Ocena: največ začetih tekem, na 2. tekmi v 2 dneh pogosto brani rezervni. Obrambe so izravnane proti povprečju lige.</p>
+    <div class="grid2">${["home", "away"].map((s) => `<div><div style="font-weight:700">${esc(x[s])}</div><div style="font-size:13px">🥅 ${goalieText(x.goalies[s]) || "–"}</div></div>`).join("")}</div>`;
+}
 function availBlock(x) {
   const av = x.availability;
-  if (!av) return "";
+  if (!av) return goalieBlock(x);
   const col = (side) => {
     const lu = av.lineup?.[side];
     const abs = absList(x, side);
@@ -315,7 +327,7 @@ function availBlock(x) {
     </div>`;
   };
   return `${x.adj ? `<div class="warn-box">Model je prilagojen: ${esc(adjText(x))}</div>` : ""}
-    <div class="grid2">${col("home")}${col("away")}</div>`;
+    <div class="grid2">${col("home")}${col("away")}</div>${goalieBlock(x)}`;
 }
 
 function mkt(x, scope, kind, line) {
@@ -413,7 +425,7 @@ function matchDetails(x) {
   const ref = x.market_ref ? `<div class="refbox ${x.markets.some((m) => m.unreliable) ? "bad" : ""}">${refText(x).replace("razlikuje za več kot 10 o. t.", x.markets.some((m) => m.unreliable) ? "razlikuje za več kot 10 o. t." : "ujema v okviru 10 o. t.")}</div>` : "";
   const players = matchPlayers(x);
   const main = ["Izid", "Skupni goli", "Skupaj", "Skupne točke", "BTTS", "Hendikep"];
-  const tabs = [["trgi", "Trgi"], ["model", "Model"], ["stat", "Statistika"], ...(x.availability ? [["postave", "Postave"]] : []), ...(players ? [["igralci", "Igralci"]] : [])];
+  const tabs = [["trgi", "Trgi"], ["model", "Model"], ["stat", "Statistika"], ...(x.availability || x.goalies ? [["postave", x.goalies ? "Postave/vratarja" : "Postave"]] : []), ...(players ? [["igralci", "Igralci"]] : [])];
   const cur = S.dtab[x.id] && tabs.some(([k]) => k === S.dtab[x.id]) ? S.dtab[x.id] : "trgi";
   const body = {
     trgi: ref + Object.entries(groups).map(([g, ms]) => `<details class="grp" ${main.includes(g) ? "open" : ""}><summary>${esc(g)} <span class="faint">${ms.length}</span></summary><div class="scroll"><table class="tbl">
@@ -522,6 +534,7 @@ const PCOLS = {
   nhl: [["name", "Igralec"], ["team", "Ekipa"], ["pos", "Poz."], ["gp", "GP", 0], ["goals", "G", 0], ["points", "P", 0], ["sog_g", "SOG/tek", 2], ["p_g", "T/tek", 2], ["toi", "TOI", 1], ["_next", "Naslednja"], ["_p1", "P(3+ SOG)"], ["_p2", "P(gol)"]],
   nba: [["name", "Igralec"], ["team", "Ekipa"], ["min", "Min", 1], ["pts", "Točke", 1], ["reb", "Skoki", 1], ["ast", "Podaje", 1], ["tpm", "3P", 1], ["pra", "T+S+P", 1], ["_next", "Naslednja"], ["_proj", "Proj. točke"]],
 };
+PCOLS.euroleague = PCOLS.nba;
 function playerStatus(p) {
   const st = p.next?.status;
   return { out: ` <span class="badge red" data-tip="Ne igra (poškodba, kazen ali ni v postavi).">NE IGRA</span>`,
@@ -550,7 +563,7 @@ function viewPlayers(v) {
   }
   if (P.q) { const q = P.q.toLowerCase(); list = list.filter((p) => (p.name + " " + p.team).toLowerCase().includes(q)); }
   const cols = PCOLS[P.sport];
-  const sk = P.sort || { football: "xg90", nhl: "p_g", nba: "pts" }[P.sport];
+  const sk = P.sort || { football: "xg90", nhl: "p_g", nba: "pts", euroleague: "pts" }[P.sport];
   list.sort((a, b) => {
     const x = pval(a, sk), y = pval(b, sk);
     if (typeof x === "string" || typeof y === "string") return P.dir * -String(x ?? "").localeCompare(String(y ?? ""));
@@ -559,7 +572,7 @@ function viewPlayers(v) {
   const shown = list.slice(0, 200);
   const lgName = (c) => ({ E0: "Premier League", SP1: "LaLiga", D1: "Bundesliga", I1: "Serie A", F1: "Ligue 1" }[c] || c);
   v.innerHTML = `<h2>Lestvica igralcev</h2>
-    <p class="section-note">${P.sport === "football" ? "Understat: tekoča sezona + pol uteži prejšnje sezone, na 90 minut. Verjetnosti upoštevajo nasprotnika, dom/gostovanje in pričakovane minute (brez potrjenih postav)." : P.sport === "nhl" ? "NHL stats API: na tekmo, tekoča sezona + pol uteži prejšnje. Verjetnosti upoštevajo strele, ki jih nasprotnik dopušča." : "ESPN box score: zadnjih 15 tekem igralca. Projekcija točk upošteva obrambo nasprotnika."}</p>
+    <p class="section-note">${P.sport === "football" ? "Understat: tekoča sezona + pol uteži prejšnje sezone, na 90 minut. Verjetnosti upoštevajo nasprotnika, dom/gostovanje in pričakovane minute (brez potrjenih postav)." : P.sport === "nhl" ? "NHL stats API: na tekmo, tekoča sezona + pol uteži prejšnje. Verjetnosti upoštevajo strele, ki jih nasprotnik dopušča." : P.sport === "euroleague" ? "Uradni EuroLeague box score: zadnjih 15 tekem igralca (tudi prejšnja sezona). Projekcija točk upošteva obrambo nasprotnika." : "ESPN box score: zadnjih 15 tekem igralca. Projekcija točk upošteva obrambo nasprotnika."}</p>
     <div class="filters">
       <label>Šport<select id="pSport">${Object.keys(PCOLS).map((k) => `<option value="${k}" ${P.sport === k ? "selected" : ""}>${SPORTS[k].name}</option>`).join("")}</select></label>
       ${P.sport === "football" ? `<label>Liga<select id="pLeague"><option value="all">Vse</option>${leagues.map((l) => `<option value="${l}" ${P.league === l ? "selected" : ""}>${lgName(l)}</option>`).join("")}</select></label>
@@ -951,6 +964,7 @@ function matchLine(x, hm) {
   const abs = ["home", "away"].map((s) => absList(x, s).filter((q) => q.status === "out").map((q) => q.name).slice(0, 4));
   if (abs[0].length || abs[1].length) parts.push(`manjkajo: ${abs[0].join(", ") || "–"} | ${abs[1].join(", ") || "–"}`);
   if (x.availability?.lineup) parts.push("postavi potrjeni");
+  if (x.goalies) parts.push(`vratarja (ocena): ${["home", "away"].map((s) => { const g = x.goalies[s]; return g ? `${g.name} ${(g.sv * 100).toFixed(1)} % p${Math.round(g.p * 100)}${g.b2b ? " B2B" : ""}` : "–"; }).join(" | ")}`);
   if (x.adj) parts.push(`prilagojeno: ${adjText(x)}`);
   const v = bestValue(x);
   if (v) parts.push(`VALUE: ${slLabel(v, x)} @ ${odds(v.odds)} (p ${pct(v.p)}, +${(v.edge * 100).toFixed(1)} %)`);
