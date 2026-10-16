@@ -113,7 +113,8 @@ def clean_key(raw: str) -> str:
 def key_shape(key: str) -> str:
     """Length and character set of the key, never the key itself (for the error message)."""
     hexa = all(c in "0123456789abcdefABCDEF" for c in key)
-    return f"ključ: {len(key)} znakov, {'hex' if hexa else 'črke+številke'}"
+    same = key == os.environ.get("ODDS_API_KEY", "").strip()
+    return f"ključ: {len(key)} znakov, {'hex' if hexa else 'črke+številke'}" + (", ISTI kot ODDS_API_KEY" if same else "")
 
 
 def api_football_injuries(dates: list[dt.date]) -> list[dict]:

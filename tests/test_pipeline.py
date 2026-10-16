@@ -488,6 +488,7 @@ def test_api_football_key_cleanup_and_error_hides_key(monkeypatch):
             return {"errors": {"token": "Error/Missing application key."}, "response": []}
         raise RuntimeError("403 Client Error: Forbidden")
     monkeypatch.setenv("API_FOOTBALL_KEY", "secretkey123")
+    monkeypatch.delenv("ODDS_API_KEY", raising=False)
     monkeypatch.setattr(availability, "cached_get", fake)
     try:
         availability.api_football_injuries([dt.date(2026, 10, 18)])
@@ -495,7 +496,9 @@ def test_api_football_key_cleanup_and_error_hides_key(monkeypatch):
     except RuntimeError as e:
         msg = str(e)
     assert "api-sports" in msg and "RapidAPI" in msg and "12 znakov" in msg
-    assert "secretkey123" not in msg
+    assert "secretkey123" not in msg and "ISTI" not in msg
+    monkeypatch.setenv("ODDS_API_KEY", "secretkey123")
+    assert "ISTI kot ODDS_API_KEY" in availability.key_shape("secretkey123")
 
 
 def test_odds_api_us_reference_for_guard():
