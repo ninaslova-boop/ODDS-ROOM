@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-10-16 – EuroLeague player and team stats from the official API
+- Source: `https://api-live.euroleague.net/v2` (the API of euroleaguebasketball.net), competition `E`, current
+  season only (`E2026` = 2026-27). Season game list + one box score per played game.
+- Players: season and last-5 averages of points, rebounds, assists, 3PM and PRA (and minutes). Prop probabilities use
+  mu = (season + last 5) / 2 with the spread of the season games (points and PRA adjusted for the opponent's defence).
+  Props need 3 games and 12 minutes per game. Replaces the old rows (last 15 games, also from last season).
+- Teams: season and last-5 averages of the official team totals (points, points allowed, rebounds, assists, 3PM),
+  shown in the match statistics and the export line.
+- Cache: every API response for the day (`data/cache/euroleague_api/<date>/`, 3 days kept); finished box scores once
+  (`data/cache/euroleague_box_v2.json`, reset at a new season).
+- No silent fallback: when the API does not return the current season (error, empty list, no game played, no box
+  score), there is no EuroLeague player data. The app and the export say "player data: none" with the reason.
+- Tests: `test_euroleague_current_season_only_and_day_cache`, `test_euroleague_no_current_season_means_no_player_data`,
+  `test_euroleague_season_and_last5_averages_and_props`, `test_export_says_player_data_none_without_current_season`.
+
 ## 2026-10-16 – fixes after the 16 Oct 2026 slate
 
 ### 1. Team mapping (critical)

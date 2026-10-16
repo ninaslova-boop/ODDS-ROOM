@@ -36,7 +36,7 @@ Orodja za kanal **The Odds Room**.
 | Nogomet | Understat | igralci top 5 lig: minute, streli, xG, xA, ključne podaje |
 | NHL | ESPN + NHL stats API | razpored, rezultati, kvote; statistika igralcev in ekip |
 | NBA | ESPN | razpored, rezultati, kvote, box score igralcev, poškodbe |
-| Euroliga | EuroLeague API | razpored, rezultati, box score igralcev; odsotnost = stalni igralec izpusti zadnji 2 tekmi |
+| Euroliga | EuroLeague API (api-live.euroleague.net) | razpored, rezultati; samo tekoča sezona: box score igralcev, povprečje sezone in zadnjih 5 (točke, skoki, podaje, 3P, T+S+P), statistika ekip; odsotnost = stalni igralec izpusti zadnji 2 tekmi; brez sezone → "player data: none" |
 | (opcija) | The Odds API | dodatne kvote, če nastaviš ključ `ODDS_API_KEY` |
 | (opcija) | API-Football | poškodbe za vse lige, če nastaviš ključ `API_FOOTBALL_KEY` |
 

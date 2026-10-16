@@ -511,9 +511,13 @@ function matchDetails(x) {
     ? [["Goli dani", "gf"], ["Goli prejeti", "ga"], ["Streli", "sf"], ["Streli prejeti", "sa"], ["V okvir", "sot"], ["Koti", "cf"], ["BTTS", "btts", 1], ["Več kot 2.5", "o25", 1], ["Brez prejetega", "cs", 1]]
     : [["Tekme", "gp"], [isBall ? "Točke dane" : "Goli dani", "for"], [isBall ? "Točke prejete" : "Goli prejeti", "against"], ["Zmage", "wins"]];
   const hasStats = Object.keys(st.home || {}).length || Object.keys(st.away || {}).length;
-  const statTbl = hasStats ? `<table class="tbl compact"><tr><th>${x.sport === "football" ? "Sezona / tekmo" : "Ta sezona"}</th><th class="r">${esc(x.home)}</th><th class="r">${esc(x.away)}</th></tr>
+  const elBox = x.sport === "euroleague" && (st.home?.box || st.away?.box);
+  const bx = (side, per, k) => st[side]?.box?.[per]?.[k] ?? "–";
+  const elTbl = elBox ? `<h4>Uradna statistika ekip (EuroLeague API): sezona / zadnjih 5</h4><table class="tbl compact"><tr><th></th><th class="r">${esc(x.home)}</th><th class="r">${esc(x.away)}</th></tr>
+    ${[["Točke", "pts"], ["Prejete točke", "opp_pts"], ["Skoki", "reb"], ["Podaje", "ast"], ["Trojke", "tpm"]].map(([l, k]) => `<tr><td class="muted">${l}</td><td class="r num">${bx("home", "season", k)} / ${bx("home", "l5", k)}</td><td class="r num">${bx("away", "season", k)} / ${bx("away", "l5", k)}</td></tr>`).join("")}</table>` : "";
+  const statTbl = elTbl + (hasStats ? `<table class="tbl compact"><tr><th>${x.sport === "football" ? "Sezona / tekmo" : "Ta sezona"}</th><th class="r">${esc(x.home)}</th><th class="r">${esc(x.away)}</th></tr>
     ${statRows.map(([l, k, isP]) => `<tr><td class="muted">${l}</td><td class="r num">${isP ? pct(st.home?.[k]) : st.home?.[k] ?? "–"}</td><td class="r num">${isP ? pct(st.away?.[k]) : st.away?.[k] ?? "–"}</td></tr>`).join("")}</table>`
-    : `<p class="note">Za to tekmovanje ni sezonske statistike. Model uporablja rezultate tekmovanja in moč domače lige.</p>`;
+    : `<p class="note">Za to tekmovanje ni sezonske statistike. Model uporablja rezultate tekmovanja in moč domače lige.</p>`);
   const model = x.total_dist ? `<h4>Porazdelitev skupnih golov</h4>${distChart(x.total_dist, x.total_mode)}
       <h4>Najverjetnejši izidi</h4><div class="chips">${x.top_scores.map((s) => `<span class="ev">${s.s} <b>${pct(s.p, 1)}</b></span>`).join("")}</div>`
     : `<p class="note">Pričakovano ${fmtNum(x.exp[0], 1)} – ${fmtNum(x.exp[1], 1)}. Raztros: total ±${x.sd?.[0]}, razlika ±${x.sd?.[1]} (1 SD).</p>`;
@@ -630,7 +634,13 @@ const PCOLS = {
   nhl: [["name", "Igralec"], ["team", "Ekipa"], ["pos", "Poz."], ["gp", "GP", 0], ["goals", "G", 0], ["points", "P", 0], ["sog_g", "SOG/tek", 2], ["p_g", "T/tek", 2], ["toi", "TOI", 1], ["_next", "Naslednja"], ["_p1", "P(3+ SOG)"], ["_p2", "P(gol)"]],
   nba: [["name", "Igralec"], ["team", "Ekipa"], ["min", "Min", 1], ["pts", "Točke", 1], ["reb", "Skoki", 1], ["ast", "Podaje", 1], ["tpm", "3P", 1], ["pra", "T+S+P", 1], ["_next", "Naslednja"], ["_proj", "Proj. točke"]],
 };
-PCOLS.euroleague = PCOLS.nba;
+PCOLS.euroleague = [["name", "Igralec"], ["team", "Ekipa"], ["gp", "GP", 0], ["min", "Min", 1], ["pts", "Točke", 1], ["l5_pts", "Točke L5", 1],
+  ["reb", "Skoki", 1], ["l5_reb", "Skoki L5", 1], ["ast", "Podaje", 1], ["l5_ast", "Podaje L5", 1], ["tpm", "3P", 1], ["l5_tpm", "3P L5", 1],
+  ["pra", "T+S+P", 1], ["l5_pra", "T+S+P L5", 1], ["_next", "Naslednja"], ["_proj", "Proj. točke"]];
+function plData(sport) {
+  const pd = S.data.meta.player_data?.[sport];
+  return pd ? pd : null;
+}
 function playerStatus(p) {
   const st = p.next?.status;
   return { out: ` <span class="badge red" data-tip="Ne igra (poškodba, kazen ali ni v postavi).">NE IGRA</span>`,
@@ -645,6 +655,7 @@ function pval(p, k) {
     return p.props?.find((r) => r.label === lbl)?.p ?? null;
   }
   if (k === "_proj") return p.next?.proj_pts ?? null;
+  if (k.startsWith("l5_")) return p.l5?.[k.slice(3)] ?? null;
   if (k === "_next") return p.next ? p.next.kickoff : "";
   return p[k];
 }
@@ -668,7 +679,7 @@ function viewPlayers(v) {
   const shown = list.slice(0, 200);
   const lgName = (c) => ({ E0: "Premier League", SP1: "LaLiga", D1: "Bundesliga", I1: "Serie A", F1: "Ligue 1" }[c] || c);
   v.innerHTML = `<h2>Lestvica igralcev</h2>
-    <p class="section-note">${P.sport === "football" ? "Understat: tekoča sezona + pol uteži prejšnje sezone, na 90 minut. Verjetnosti upoštevajo nasprotnika, dom/gostovanje in pričakovane minute (brez potrjenih postav)." : P.sport === "nhl" ? "NHL stats API: na tekmo, tekoča sezona + pol uteži prejšnje. Verjetnosti upoštevajo strele, ki jih nasprotnik dopušča." : P.sport === "euroleague" ? "Uradni EuroLeague box score: zadnjih 15 tekem igralca (tudi prejšnja sezona). Projekcija točk upošteva obrambo nasprotnika." : "ESPN box score: zadnjih 15 tekem igralca. Projekcija točk upošteva obrambo nasprotnika."}</p>
+    <p class="section-note">${P.sport === "football" ? "Understat: tekoča sezona + pol uteži prejšnje sezone, na 90 minut. Verjetnosti upoštevajo nasprotnika, dom/gostovanje in pričakovane minute (brez potrjenih postav)." : P.sport === "nhl" ? "NHL stats API: na tekmo, tekoča sezona + pol uteži prejšnje. Verjetnosti upoštevajo strele, ki jih nasprotnik dopušča." : P.sport === "euroleague" ? (plData("euroleague")?.ok === false ? `<b>player data: none</b> – ${esc(plData("euroleague").reason || "")}. Prejšnje sezone ne uporabimo.` : `Uradni EuroLeague API (api-live.euroleague.net), samo sezona ${esc(plData("euroleague")?.season || "")}: povprečje sezone in zadnjih 5 tekem (L5). Verjetnosti: μ = (sezona + L5) / 2, točke prilagojene obrambi nasprotnika.`) : "ESPN box score: zadnjih 15 tekem igralca. Projekcija točk upošteva obrambo nasprotnika."}</p>
     <div class="filters">
       <label>Šport<select id="pSport">${Object.keys(PCOLS).map((k) => `<option value="${k}" ${P.sport === k ? "selected" : ""}>${SPORTS[k].name}</option>`).join("")}</select></label>
       ${P.sport === "football" ? `<label>Liga<select id="pLeague"><option value="all">Vse</option>${leagues.map((l) => `<option value="${l}" ${P.league === l ? "selected" : ""}>${lgName(l)}</option>`).join("")}</select></label>
@@ -681,7 +692,7 @@ function viewPlayers(v) {
         if (k === "_next") return `<td class="muted" style="white-space:nowrap">${p.next ? `${p.next.home ? "vs" : "@"} ${esc(p.next.opp)} · ${fmtTime(p.next.kickoff)}${playerStatus(p)}` : "–"}</td>`;
         if (k === "_p1" || k === "_p2") { const val = pval(p, k); return `<td class="r">${val == null ? "–" : pbar(val)}</td>`; }
         if (k === "_proj") return `<td class="r num">${fmtNum(pval(p, k), 1)}</td>`;
-        if (d != null) return `<td class="r num">${fmtNum(p[k], d)}</td>`;
+        if (d != null) return `<td class="r num">${fmtNum(pval(p, k), d)}</td>`;
         return `<td>${esc(p[k] ?? "")}</td>`;
       }).join("")}</tr>`).join("")}
     </table>${!list.length ? `<div class="empty">Ni igralcev za te filtre.</div>` : ""}</div>`;
@@ -1181,6 +1192,10 @@ function claudeExport(day, sport, withPlayers, allMatches) {
   L.push(`Podatki o poškodbah: ${[...comps.values()].filter((x) => (inj[injKey(x)] || []).length).map((x) => `${x.league_name} (${inj[injKey(x)].join(", ")})`).join(", ") || "–"}`);
   if (noInj.length) L.push(`injury data: none → ${noInj.join(", ")}`);
   if (notVal.length) L.push(`NOT VALIDATED (backtest manjka ali premalo tekem): ${notVal.join(", ")}`);
+  const elPd = plData("euroleague");
+  if (ms.some((x) => x.sport === "euroleague")) {
+    L.push(elPd?.ok ? `EuroLeague player data: EuroLeague API, sezona ${elPd.season} (${elPd.games} tekem)` : `player data: none → EuroLeague${elPd?.reason ? ` (${elPd.reason})` : ""}`);
+  }
   L.push("");
   L.push("## Navodilo");
   L.push("Si analitik športnih stav. Spodaj so ocene modela The Odds Room. Pravilo picka: p_final × kvota bet365 > 1.00 (◆ = ≥ 1.10). Brez drugih oznak.");
@@ -1271,7 +1286,9 @@ function claudeExport(day, sport, withPlayers, allMatches) {
     }
     pp.sort((a, b) => b.pr.p - a.pr.p);
     L.push(`## Igralci: dogodki 55–85 % (top ${Math.min(25, pp.length)}; brez poškodovanih, kaznovanih in vprašljivih)`);
-    for (const { pl, pr, x } of pp.slice(0, 25)) L.push(`- ${pl.name} (${pl.team}, ${pl.next.home ? "doma" : "v gosteh"} vs ${pl.next.opp}, ${hm(x.kickoff)}): ${pr.label} ${pct(pr.p)}, min. kvota ${(1 / pr.p).toFixed(2)}${(inj[injKey(x)] || []).length ? "" : " [injury data: none]"}`);
+    const avgTxt = (pl, pr) => pl.l5 && pl[pr.stat] != null ? ` · sezona ${fmtNum(pl[pr.stat], 1)}, L5 ${fmtNum(pl.l5[pr.stat], 1)} (${pl.gp} tekem)` : "";
+    for (const { pl, pr, x } of pp.slice(0, 25)) L.push(`- ${pl.name} (${pl.team}, ${pl.next.home ? "doma" : "v gosteh"} vs ${pl.next.opp}, ${hm(x.kickoff)}): ${pr.label} ${pct(pr.p)}, min. kvota ${(1 / pr.p).toFixed(2)}${avgTxt(pl, pr)}${(inj[injKey(x)] || []).length ? "" : " [injury data: none]"}`);
+    if (spOk("euroleague") && ms.some((x) => x.sport === "euroleague") && elPd?.ok === false) L.push("- EuroLeague: player data: none");
     if (!pp.length) L.push("Ni podatkov o igralcih za ta dan.");
   }
   return L.join("\n");
@@ -1311,6 +1328,10 @@ function matchLine(x, hm) {
   if (x.goalies) parts.push(`vratarja (ocena, ni potrjeno): ${["home", "away"].map((s) => { const g = x.goalies[s]; return g ? `${g.name} ${(g.sv * 100).toFixed(1)} %${g.b2b ? " B2B" : ""}` : "–"; }).join(" | ")}`);
   if (x.adj) parts.push(`prilagoditev (odsotnosti): ${adjText(x)}`);
   for (const c of x.context || []) parts.push(`prilagoditev (počitek): ${c}`);
+  if (x.sport === "euroleague" && (x.stats?.home?.box || x.stats?.away?.box)) {
+    const t = (side) => { const b = x.stats?.[side]?.box; return b ? `${b.season.pts}–${b.season.opp_pts} (L5 ${b.l5.pts}–${b.l5.opp_pts})` : "–"; };
+    parts.push(`točke dane–prejete sezona: ${t("home")} | ${t("away")}`);
+  }
   const v = bestValue(x);
   if (v) parts.push(`PICK: ${slLabel(v, x)} @ bet365 ${odds(v.b365)} (p ${pfm(v)}, p×kvota ${(v.p * v.b365).toFixed(3)}${v.p * v.b365 >= STRONG_EV ? " ◆" : ""})`);
   if (x.mismatch) parts.push(`DATA MISMATCH: ${x.mismatch}`);

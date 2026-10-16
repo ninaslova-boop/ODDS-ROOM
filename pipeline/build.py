@@ -122,6 +122,7 @@ def main(argv=None):
                          "players": len(player_out.get("nba", [])), "ok": bool(nba and nba.get("ratings"))}
 
     el_absent = None          # None = no EuroLeague box scores, so no absence data
+    player_data: dict[str, dict] = {}
     if "euroleague" in wanted:
         el = _safe("euroleague", sports.build_euroleague, today, errors=errors)
         if el:
@@ -129,12 +130,19 @@ def main(argv=None):
             if el.get("model"):
                 rest_inputs.append(("euroleague", el["hist"], el["model"].expected, adjust._rebuild_basketball))
             errors += el["errors"]
-            if el.get("games"):
-                box = _safe("euroleague box", euroleague_players.update_boxes, el["games"], errors=errors,
-                            default={"games": {}})
+            # player and team stats: official EuroLeague API, current season only (no fallback)
+            box = _safe("euroleague box", euroleague_players.load, today, errors=errors,
+                        default={"ok": False, "reason": "napaka pri nalaganju", "games": {}})
+            if box["ok"]:
                 player_out["euroleague"] = _safe("euroleague players", euroleague_players.players, el, box,
-                                                 sports._season_start(today), errors=errors, default=[])
+                                                 errors=errors, default=[])
+                euroleague_players.attach_team_stats(el["matches"], euroleague_players.team_stats(box))
                 el_absent = euroleague_players.absences(player_out["euroleague"] or [], box)
+                player_data["euroleague"] = {"ok": True, "season": box["season"], "games": len(box["games"])}
+            else:
+                player_out["euroleague"] = []
+                player_data["euroleague"] = {"ok": False, "season": box.get("season"), "reason": box["reason"]}
+                errors.append(f"EuroLeague player data: none ({box['reason']})")
         status["euroleague"] = {"matches": len(el["matches"]) if el else 0,
                                 "players": len(player_out.get("euroleague", [])), "ok": bool(el and el.get("ratings"))}
 
@@ -204,7 +212,7 @@ def main(argv=None):
     write_json(OUT_DIR / "picks.json", {"generated": gen, "picks": log_data["picks"], "stats": log_data["stats"]})
     write_json(OUT_DIR / "meta.json", {"generated": gen, "today": today.isoformat(), "status": status,
                                        "mode": RUN["mode"], "news": len(avail),
-                                       "injury_sources": availability.LAST_COVERAGE,
+                                       "injury_sources": availability.LAST_COVERAGE, "player_data": player_data,
                                        "errors": errors[:80], "ratings": ratings}, compact=False)
     (CACHE_DIR / "last_mode.txt").write_text(RUN["mode"], encoding="utf-8")
     log.info("done (%s): %d matches, %d errors", RUN["mode"], len(all_matches), len(errors))
