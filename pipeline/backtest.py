@@ -168,7 +168,7 @@ def cups(today: dt.date):
         test = [x for x in hist if t <= x["date"] < t + dt.timedelta(days=14)]
         if not test or len(train) < 50:
             continue
-        goal_ratings = {div: r for div in football.LEAGUES if (r := fd.fit(div, t))}
+        goal_ratings = {div: r for div in football.LEAGUES if (r := fd.fit(div, t, ridge=football.DOMESTIC_RIDGE.get(div, 10.0)))}
         espn_ratings = {}
         for c, games in dom_games.items():
             g = [x for x in games if t - dt.timedelta(days=430) <= x["date"] < t]
@@ -208,7 +208,7 @@ def cups(today: dt.date):
     # agreement with the market on the coming games (ESPN prices without margin)
     up = [g for g in cup_games.values() if not g.get("done") and g.get("odds", {}).get("ml_home")]
     if up and per_cp:
-        goal_ratings = {div: r for div in football.LEAGUES if (r := fd.fit(div, today))}
+        goal_ratings = {div: r for div in football.LEAGUES if (r := fd.fit(div, today, ridge=football.DOMESTIC_RIDGE.get(div, 10.0)))}
         espn_ratings = {c: r for c, games in dom_games.items()
                         if (r := models.fit_poisson([x for x in games if x["date"] >= today - dt.timedelta(days=430)],
                                                     today, half_life_days=200, ridge=5.0))}
@@ -342,6 +342,65 @@ def e1(today: dt.date, div: str = "E1"):
 
 
 # --------------------------------------------------------------------------
+# all football-data.co.uk divisions: domestic ridge
+# --------------------------------------------------------------------------
+RIDGES = (5.0, 8.0, 10.0, 15.0)
+
+
+def domestic(today: dt.date):
+    say("## Domače lige: ridge (walk-forward, zadnji 2 sezoni + tekoča)")
+    divs = list(football.LEAGUES)
+    fd = FDHistory(divs, today, n_seasons=4)
+    start = dt.date(int("20" + fd.codes[1][:2]), 8, 1)
+    cps = checkpoints(start, today, 7)
+    tot = {rg: Score() for rg in RIDGES}
+    mkt_all = Score()
+    say("| liga | n | " + " | ".join(f"ridge {rg:g}" for rg in RIDGES) + " | trg |")
+    say("|---|---|" + "---|" * (len(RIDGES) + 1))
+    per_div = {}
+    for div in divs:
+        sc = {rg: Score() for rg in RIDGES}
+        mk = Score()
+        rows_all = [r for c in fd.codes for r in fd.rows[div].get(c, []) if r.get("FTHG")]
+        for t in cps:
+            week = [r for r in rows_all if t <= r["_date"] < t + dt.timedelta(days=7)]
+            if not week:
+                continue
+            fits = {rg: fd.fit(div, t, ridge=rg) for rg in RIDGES}
+            for r in week:
+                hg, ag = int(float(r["FTHG"])), int(float(r["FTAG"]))
+                ok = all(f and r["HomeTeam"] in f.att and r["AwayTeam"] in f.att for f in fits.values())
+                if not ok:
+                    continue
+                for rg, f in fits.items():
+                    p = probs(*f.expected(r["HomeTeam"], r["AwayTeam"]))
+                    sc[rg].add(p, hg, ag); tot[rg].add(p, hg, ag)
+                ref = market.no_vig(football.pinnacle_from_row(r, closing=True), ("1", "X", "2")) or market.no_vig(
+                    {"1": football.to_float(r.get("AvgCH")) or football.to_float(r.get("AvgH")),
+                     "X": football.to_float(r.get("AvgCD")) or football.to_float(r.get("AvgD")),
+                     "2": football.to_float(r.get("AvgCA")) or football.to_float(r.get("AvgA"))}, ("1", "X", "2"))
+                if ref:
+                    mk.add(ref, hg, ag); mkt_all.add(ref, hg, ag)
+        per_div[div] = sc
+        cells = []
+        best = min(RIDGES, key=lambda rg: sc[rg].ll / max(1, sc[rg].n) + sc[rg].ll_ou / max(1, sc[rg].n_ou))
+        for rg in RIDGES:
+            v = sc[rg].ll / max(1, sc[rg].n) + sc[rg].ll_ou / max(1, sc[rg].n_ou)
+            cells.append(f"**{v:.4f}**" if rg == best else f"{v:.4f}")
+        say(f"| {div} | {sc[RIDGES[0]].n} | " + " | ".join(cells) + f" | {mk.ll / max(1, mk.n):.4f} (1X2) |")
+    say()
+    say("Vse lige skupaj (1X2 + O/U 2.5 log-loss):")
+    say(HEAD)
+    for rg in RIDGES:
+        say(tot[rg].row(f"ridge {rg:g}"))
+    say(mkt_all.row("trg (Pinnacle ali povprečje, brez marže)"))
+    best = min(RIDGES, key=lambda rg: tot[rg].ll / tot[rg].n + tot[rg].ll_ou / tot[rg].n_ou)
+    say()
+    say(f"Najboljši skupni ridge: **{best:g}**")
+    return {"ridge": best}
+
+
+# --------------------------------------------------------------------------
 # NHL
 # --------------------------------------------------------------------------
 def nhl():
@@ -381,7 +440,7 @@ def nhl():
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument("--part", default="nhl,e1,cups")
+    ap.add_argument("--part", default="nhl,e1,domestic,cups")
     args = ap.parse_args(argv)
     setup_logging()
     today = now_utc().date()
@@ -392,6 +451,8 @@ def main(argv=None):
         nhl(); say()
     if "e1" in parts:
         e1(today); say()
+    if "domestic" in parts:
+        say(f"```json\n{json.dumps(domestic(today))}\n```"); say()
     if "cups" in parts:
         rec = cups(today); say()
         say(f"```json\n{json.dumps(rec)}\n```")

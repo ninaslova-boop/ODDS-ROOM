@@ -6,8 +6,9 @@ const S = {
   sport: "all",
   tab: "matches",
   open: new Set(),            // expanded match cards
+  dtab: {},                   // selected inner tab per match
   rank: { min: 0.55, max: 0.92, kind: "all", group: "all", q: "", onlyOdds: false },
-  value: { minEdge: 0.03, inclAssumed: true },
+  value: { minEdge: 0.03, inclAssumed: true, showBad: false },
   players: { sport: "football", league: "all", q: "", sort: null, dir: -1, minMin: 450 },
   matchDay: "all", league: "all",
   log: { filter: "all" },
@@ -167,6 +168,8 @@ document.addEventListener("click", (e) => {
   if (chip) { S.sport = chip.dataset.sport; S.league = "all"; persist(); renderChips(); render(); return; }
   const tab = e.target.closest("#tabs [data-tab]");
   if (tab) { S.tab = tab.dataset.tab; history.replaceState(null, "", "#" + S.tab); persist(); render(); window.scrollTo(0, 0); return; }
+  const dt = e.target.closest("[data-dtab]");
+  if (dt) { S.dtab[dt.closest(".match").dataset.id] = dt.dataset.dtab; render(); return; }
   const card = e.target.closest(".match[data-id]");
   if (card && !e.target.closest(".details")) {
     const id = card.dataset.id;
@@ -213,6 +216,10 @@ function sourceWarnings() {
 }
 
 /* ---------- small components ---------- */
+function formDots(f, big) {
+  if (!f || !f.length) return "";
+  return `<span class="dots ${big ? "big" : ""}">${f.map((g) => `<i class="${g.r}" data-tip="${esc(`${g.h ? "doma" : "v gosteh"} vs ${g.o}: ${g.s} (${g.d})`)}"></i>`).join("")}</span>`;
+}
 function formChips(f) {
   if (!f || !f.length) return "";
   return `<span class="form">${f.map((g) => `<i class="${g.r}" data-tip="${esc(`${g.h ? "doma" : "v gosteh"} vs ${g.o}: ${g.s} (${g.d})`)}">${g.r === "W" ? "Z" : g.r === "D" ? "R" : "P"}</i>`).join("")}</span>`;
@@ -253,9 +260,9 @@ function viewMatches(v) {
     <div class="filters">
       <label>Dan<select id="fDay"><option value="all">Vsi dnevi</option>${days.map((d) => `<option value="${d}" ${S.matchDay === d ? "selected" : ""}>${dayLabel(d)}</option>`).join("")}</select></label>
       <label>Liga<select id="fLeague"><option value="all">Vse lige</option>${leagues.map((l) => `<option ${S.league === l ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></label>
-      <span class="spacer"></span><span class="muted" style="font-size:12px">${list.length} tekem · klikni tekmo za podrobnosti</span>
+      <span class="spacer"></span><span class="count">${list.length} tekem · tapni tekmo za podrobnosti</span>
     </div>
-    ${Object.keys(groups).length ? Object.entries(groups).map(([d, ms]) => `<div class="day-h">${dayLabel(d)}</div>${ms.map(matchCard).join("")}`).join("")
+    ${Object.keys(groups).length ? Object.entries(groups).map(([d, ms]) => `<div class="day-h">${dayLabel(d)} <span class="faint">${ms.length}</span></div>${ms.map(matchCard).join("")}`).join("")
       : `<div class="card empty"><b>Ni tekem</b>Za ta izbor v naslednjih 7 dneh ni tekem.</div>`}`;
   $("#fDay").onchange = (e) => { S.matchDay = e.target.value; render(); };
   $("#fLeague").onchange = (e) => { S.league = e.target.value; render(); };
@@ -267,8 +274,11 @@ function refText(x) {
   const r = x.market_ref;
   if (!r) return "";
   const f = (k) => `${pct(r.model[k])} / ${pct(r.p[k])}`;
+  const parts = ["1", "X", "2"].filter((k) => r.p[k] != null).map((k) => `${k}: ${f(k)}`);
+  if (r.p["over2.5"] != null) parts.push(`O2.5: ${f("over2.5")}`);
+  if (r.p.over != null) parts.push(`O${r.line}: ${f("over")}`);
   return `Model se od trga (${SRC_SL[r.src] || r.src}, brez marže) razlikuje za več kot 10 o. t.<br>` +
-    `1: ${f("1")} · X: ${f("X")} · 2: ${f("2")}${r.p["over2.5"] != null ? ` · O2.5: ${f("over2.5")}` : ""}<br>(model / trg)` +
+    `${parts.join(" · ")}<br>(model / trg)` +
     (r.blend ? `<br>Prikazane verjetnosti: ${Math.round(r.blend.w_model * 100)} % model + ${100 - Math.round(r.blend.w_model * 100)} % Pinnacle.` : "");
 }
 function unreliableTag(m, x) {
@@ -304,30 +314,78 @@ function availBlock(x) {
         `<div style="font-size:13px">${a.status === "out" ? "🚑" : "⚠️"} ${esc(a.name)} <span class="faint">${esc(a.reason || "")}${a.chance != null && a.status !== "out" ? ` · ${a.chance} %` : ""} · ${esc(a.src || "")}</span></div>`).join("")}` : (lu ? "" : `<div class="faint" style="font-size:12px">Ni znanih odsotnosti.</div>`)}
     </div>`;
   };
-  return `<h3>Postave in odsotnosti</h3>${x.adj ? `<div class="warn-box">Model je prilagojen: ${esc(adjText(x))}</div>` : ""}
+  return `${x.adj ? `<div class="warn-box">Model je prilagojen: ${esc(adjText(x))}</div>` : ""}
     <div class="grid2">${col("home")}${col("away")}</div>`;
+}
+
+function mkt(x, scope, kind, line) {
+  return x.markets.find((m) => m.stat !== "corners" && m.stat !== "cards" && m.stat !== "sot" &&
+    m.scope === scope && m.kind === kind && (line === undefined || m.line === line));
+}
+/* one 1X2 (or 1/2) stacked bar: home, draw, away */
+function resultBar(x) {
+  const h = mkt(x, "match", "1"), d = x.sport === "football" ? mkt(x, "match", "X") : null, a = mkt(x, "match", "2");
+  if (!h || !a) return "";
+  const segs = [["h", h.p, "1"], ...(d ? [["d", d.p, "X"]] : []), ["a", a.p, "2"]];
+  const ref = x.market_ref?.p;
+  const tip = (k, p) => `${k === "1" ? esc(x.home) : k === "2" ? esc(x.away) : "Remi"}: <b>${pct(p)}</b>` +
+    (ref?.[k] != null ? `<br>trg: ${pct(ref[k])}` : "");
+  return `<div class="rbar">${segs.map(([c, p, k]) => `<div class="seg ${c}" style="flex:${Math.max(p, 0.04)}" data-tip="${tip(k, p)}"><span>${pct(p)}</span></div>`).join("")}</div>`;
+}
+function bestValue(x) {
+  return x.markets.filter((m) => m.edge != null && m.edge >= 0.05 && m.p >= 0.4 && !m.unreliable && !m.odds_assumed)
+    .sort((a, b) => b.edge * b.p - a.edge * a.p)[0];
+}
+function cardFacts(x) {
+  const isBall = x.sport === "nba" || x.sport === "euroleague";
+  if (isBall) {
+    const t = x.exp[0] + x.exp[1], m = x.exp[0] - x.exp[1];
+    return [["Skupaj", fmtNum(t, 1)], ["Razlika", (m > 0 ? "+" : "") + fmtNum(m, 1)]];
+  }
+  const facts = [["Najv. izid", x.top_scores?.[0]?.s || "–"]];
+  if (x.sport === "football") {
+    const o = mkt(x, "total", "over", 2.5), b = mkt(x, "btts", "yes");
+    if (o) facts.push(["Več 2.5", pct(o.p)]);
+    if (b) facts.push(["Oba dasta", pct(b.p)]);
+  } else {
+    const line = x.odds_raw?.total || 5.5, o = mkt(x, "total", "over", line);
+    if (o) facts.push([`Več ${line}`, pct(o.p)]);
+  }
+  return facts;
+}
+function statusIcons(x) {
+  const out = [];
+  if (x.markets.some((m) => m.unreliable)) out.push(`<span class="ico warn" data-tip="${esc(refText(x))}">⚠</span>`);
+  if (x.adj) out.push(`<span class="ico red" data-tip="${esc("Model prilagojen: " + adjText(x))}">±</span>`);
+  if (x.availability?.lineup) out.push(`<span class="ico ok" data-tip="Začetni postavi sta objavljeni.">XI</span>`);
+  const n = absList(x, "home").length + absList(x, "away").length;
+  if (n) {
+    const names = ["home", "away"].flatMap((s) => absList(x, s).map((a) => `${esc(a.name)} (${STATUS_SL[a.status] || a.status})`)).slice(0, 12).join("<br>");
+    out.push(`<span class="ico" data-tip="${names}">🚑${n}</span>`);
+  }
+  return out.join("");
 }
 
 function matchCard(x) {
   const sp = SPORTS[x.sport] || {};
-  const isBall = x.sport === "nba" || x.sport === "euroleague";
-  const vals = x.markets.filter((m) => m.edge != null && m.edge >= 0.05 && m.p >= 0.4 && !m.unreliable);
-  const top = topEvents(x);
-  const unit = isBall ? "točk" : "golov";
-  const head = isBall
-    ? `<span>Pričakovano: <b>${fmtNum(x.exp[0], 1)} – ${fmtNum(x.exp[1], 1)}</b></span><span>Skupaj: <b>${fmtNum(x.exp[0] + x.exp[1], 1)}</b></span><span>Razlika: <b>${(x.exp[0] - x.exp[1] > 0 ? "+" : "") + fmtNum(x.exp[0] - x.exp[1], 1)}</b></span>`
-    : `<span>Najverjetnejši izid: <b>${x.top_scores?.[0]?.s}</b> (${pct(x.top_scores?.[0]?.p)})</span><span>Najverjetneje skupaj: <b>${x.total_mode} ${unit}</b></span><span>Pričakovano skupaj: <b>${fmtNum(x.exp[0] + x.exp[1], 2)}</b></span>`;
-  return `<div class="card match" data-id="${esc(x.id)}">
-    <div class="meta"><span>${sp.icon || ""} ${esc(x.league_name)}</span><span>·</span><span>${fmtTime(x.kickoff)}</span>
-      <span class="spacer"></span>${x.markets.some((m) => m.unreliable) ? `<span class="badge red" data-tip="${esc(refText(x))}">MODEL NEZANESLJIV</span> ` : ""}${newsBadges(x)}${vals.length ? `<span class="badge amber">VALUE ×${vals.length}</span>` : ""}</div>
-    <div class="teams">
-      <div>${esc(x.home)}${formChips(x.form?.home)}</div><div class="xg num">${expLbl(x, 0)}</div>
-      <div>${esc(x.away)}${formChips(x.form?.away)}</div><div class="xg num">${expLbl(x, 1)}</div>
+  const v = bestValue(x);
+  const t = new Date(x.kickoff);
+  return `<article class="card match ${S.open.has(x.id) ? "open" : ""}" data-id="${esc(x.id)}">
+    <div class="m-top">
+      <span class="m-time num">${t.toLocaleTimeString("sl-SI", { hour: "2-digit", minute: "2-digit" })}</span>
+      <span class="m-league">${sp.icon || ""} ${esc(x.league_name)}</span>
+      <span class="spacer"></span>${statusIcons(x)}
     </div>
-    <div class="headline">${head}</div>
-    <div class="top-ev">${top.map((m) => `<span class="ev ${m.edge > 0.03 ? "val" : ""}">${esc(slLabel(m, x))} <b>${pct(m.p)}</b></span>`).join("")}</div>
+    <div class="m-teams">
+      <div class="m-team"><span class="nm">${esc(x.home)}</span>${formDots(x.form?.home)}<span class="xg num">${expLbl(x, 0)}</span></div>
+      <div class="m-team"><span class="nm">${esc(x.away)}</span>${formDots(x.form?.away)}<span class="xg num">${expLbl(x, 1)}</span></div>
+    </div>
+    ${resultBar(x)}
+    <div class="m-facts">${cardFacts(x).map(([l, val]) => `<span><em>${l}</em> <b class="num">${val}</b></span>`).join("")}
+      ${v ? `<span class="m-value" data-tip="Model ${pct(v.p)} · fer ${odds(v.fair)} · kvota ${odds(v.odds)}">VALUE ${esc(slLabel(v, x))} @ ${odds(v.odds)} <b>+${(v.edge * 100).toFixed(0)} %</b></span>` : ""}
+    </div>
     ${S.open.has(x.id) ? matchDetails(x) : ""}
-  </div>`;
+  </article>`;
 }
 
 function expLbl(x, i) {
@@ -344,20 +402,32 @@ function matchDetails(x) {
   const statRows = x.sport === "football"
     ? [["Goli dani", "gf"], ["Goli prejeti", "ga"], ["Streli", "sf"], ["Streli prejeti", "sa"], ["V okvir", "sot"], ["Koti", "cf"], ["BTTS", "btts", 1], ["Več kot 2.5", "o25", 1], ["Brez prejetega", "cs", 1]]
     : [["Tekme", "gp"], [isBall ? "Točke dane" : "Goli dani", "for"], [isBall ? "Točke prejete" : "Goli prejeti", "against"], ["Zmage", "wins"]];
-  const statTbl = `<div class="kv"><span class="h">${x.sport === "football" ? "Sezona / tekmo" : "Ta sezona"}</span><span class="h">${esc(x.home)}</span><span class="h">${esc(x.away)}</span>
-    ${statRows.map(([l, k, isP]) => `<span class="muted">${l}</span><span class="num">${isP ? pct(st.home?.[k]) : st.home?.[k] ?? "–"}</span><span class="num">${isP ? pct(st.away?.[k]) : st.away?.[k] ?? "–"}</span>`).join("")}</div>`;
-  const dist = x.total_dist ? `<h3>Porazdelitev skupnih golov</h3>${distChart(x.total_dist, x.total_mode)}
-      <h3>Najverjetnejši izidi</h3><div class="top-ev">${x.top_scores.map((s) => `<span class="ev">${s.s} <b>${pct(s.p, 1)}</b></span>`).join("")}</div>` : `<h3>Model</h3><div class="muted" style="font-size:13px">Pričakovano ${fmtNum(x.exp[0], 1)} – ${fmtNum(x.exp[1], 1)}. Raztros: total ±${x.sd?.[0]}, razlika ±${x.sd?.[1]} (1 SD).</div>`;
-  const extra = x.extra ? `<div class="muted" style="font-size:12.5px;margin-top:8px">${x.extra.corners ? `Pričakovani koti: <b>${x.extra.corners[0]} – ${x.extra.corners[1]}</b> · ` : ""}${x.extra.cards ? `kartoni: <b>${x.extra.cards[0]} – ${x.extra.cards[1]}</b> · ` : ""}${x.extra.sot ? `streli v okvir: <b>${x.extra.sot[0]} – ${x.extra.sot[1]}</b>` : ""}</div>` : "";
+  const hasStats = Object.keys(st.home || {}).length || Object.keys(st.away || {}).length;
+  const statTbl = hasStats ? `<table class="tbl compact"><tr><th>${x.sport === "football" ? "Sezona / tekmo" : "Ta sezona"}</th><th class="r">${esc(x.home)}</th><th class="r">${esc(x.away)}</th></tr>
+    ${statRows.map(([l, k, isP]) => `<tr><td class="muted">${l}</td><td class="r num">${isP ? pct(st.home?.[k]) : st.home?.[k] ?? "–"}</td><td class="r num">${isP ? pct(st.away?.[k]) : st.away?.[k] ?? "–"}</td></tr>`).join("")}</table>`
+    : `<p class="note">Za to tekmovanje ni sezonske statistike. Model uporablja rezultate tekmovanja in moč domače lige.</p>`;
+  const model = x.total_dist ? `<h4>Porazdelitev skupnih golov</h4>${distChart(x.total_dist, x.total_mode)}
+      <h4>Najverjetnejši izidi</h4><div class="chips">${x.top_scores.map((s) => `<span class="ev">${s.s} <b>${pct(s.p, 1)}</b></span>`).join("")}</div>`
+    : `<p class="note">Pričakovano ${fmtNum(x.exp[0], 1)} – ${fmtNum(x.exp[1], 1)}. Raztros: total ±${x.sd?.[0]}, razlika ±${x.sd?.[1]} (1 SD).</p>`;
+  const extra = x.extra ? `<p class="note">${x.extra.corners ? `Koti <b>${x.extra.corners[0]} – ${x.extra.corners[1]}</b> · ` : ""}${x.extra.cards ? `kartoni <b>${x.extra.cards[0]} – ${x.extra.cards[1]}</b> · ` : ""}${x.extra.sot ? `streli v okvir <b>${x.extra.sot[0]} – ${x.extra.sot[1]}</b>` : ""}</p>` : "";
+  const ref = x.market_ref ? `<div class="refbox ${x.markets.some((m) => m.unreliable) ? "bad" : ""}">${refText(x).replace("razlikuje za več kot 10 o. t.", x.markets.some((m) => m.unreliable) ? "razlikuje za več kot 10 o. t." : "ujema v okviru 10 o. t.")}</div>` : "";
   const players = matchPlayers(x);
-  return `<div class="details">
-    <div class="grid2"><div>${dist}${extra}</div><div><h3>Statistika</h3>${Object.keys(st.home || {}).length || Object.keys(st.away || {}).length ? statTbl : `<div class="faint" style="font-size:13px">Za to tekmovanje ni sezonske statistike. Model uporablja rezultate tekmovanja in moč domače lige.</div>`}</div></div>
-    ${availBlock(x)}
-    ${Object.entries(groups).map(([g, ms]) => `<h3>${esc(g)}</h3><div class="scroll"><table class="tbl">
-      <tr><th>Dogodek</th><th>Verjetnost</th><th class="r">Fer kvota</th><th class="r">Kvota</th><th class="r">Prednost</th></tr>
+  const main = ["Izid", "Skupni goli", "Skupaj", "Skupne točke", "BTTS", "Hendikep"];
+  const tabs = [["trgi", "Trgi"], ["model", "Model"], ["stat", "Statistika"], ...(x.availability ? [["postave", "Postave"]] : []), ...(players ? [["igralci", "Igralci"]] : [])];
+  const cur = S.dtab[x.id] && tabs.some(([k]) => k === S.dtab[x.id]) ? S.dtab[x.id] : "trgi";
+  const body = {
+    trgi: ref + Object.entries(groups).map(([g, ms]) => `<details class="grp" ${main.includes(g) ? "open" : ""}><summary>${esc(g)} <span class="faint">${ms.length}</span></summary><div class="scroll"><table class="tbl">
+      <tr><th>Dogodek</th><th>Verjetnost</th><th class="r">Fer</th><th class="r">Kvota</th><th class="r">Prednost</th></tr>
       ${ms.map((m) => `<tr class="${m.edge >= 0.05 && !m.unreliable ? "hl" : ""}"><td>${esc(slLabel(m, x))}${unreliableTag(m, x)}</td><td>${pbar(m.p)}</td><td class="r num">${odds(m.fair)}</td><td class="r num">${odds(m.odds)}${m.odds_assumed ? "~" : ""}</td><td class="r num">${edgeCell(m.edge, m.odds_assumed)}</td></tr>`).join("")}
-      </table></div>`).join("")}
-    ${players}
+      </table></div></details>`).join(""),
+    model: model + extra,
+    stat: statTbl + `<h4>Forma</h4><div class="formrows"><div><span class="muted">${esc(x.home)}</span> ${formDots(x.form?.home, true)}</div><div><span class="muted">${esc(x.away)}</span> ${formDots(x.form?.away, true)}</div></div>`,
+    postave: availBlock(x),
+    igralci: players,
+  }[cur];
+  return `<div class="details">
+    <nav class="dtabs">${tabs.map(([k, l]) => `<button data-dtab="${k}" class="${k === cur ? "on" : ""}">${l}</button>`).join("")}</nav>
+    <div class="dbody">${body}</div>
   </div>`;
 }
 
@@ -366,7 +436,7 @@ function matchPlayers(x) {
   if (!list.length) return "";
   const key = { football: "1+ strel v okvir", nhl: "Strelov na gol 3+", nba: null }[x.sport];
   const sorted = list.slice().sort((a, b) => (b.next.exp_shots || b.next.exp_sog || b.next.proj_pts || 0) - (a.next.exp_shots || a.next.exp_sog || a.next.proj_pts || 0)).slice(0, 12);
-  return `<h3>Igralci na tej tekmi</h3><div class="scroll"><table class="tbl"><tr><th>Igralec</th><th>Ekipa</th><th>Napoved</th><th>Top dogodki</th></tr>
+  return `<div class="scroll"><table class="tbl"><tr><th>Igralec</th><th>Ekipa</th><th>Napoved</th><th>Top dogodki</th></tr>
     ${sorted.map((p) => {
       const proj = x.sport === "football" ? `${p.next.exp_shots} strelov · ${p.next.exp_sot} v okvir` : x.sport === "nhl" ? `${p.next.exp_sog} SOG` : `${p.next.proj_pts} točk`;
       const props = p.props.filter((r) => r.p >= 0.5 && r.p <= 0.92).sort((a, b) => b.p - a.p).slice(0, 2);
@@ -400,9 +470,9 @@ function viewRanking(v) {
       <label>Vrsta<select id="fKind"><option value="all">Vse</option><option value="team" ${R.kind === "team" ? "selected" : ""}>Ekipe</option><option value="player" ${R.kind === "player" ? "selected" : ""}>Igralci</option></select></label>
       <label>Trg<select id="fGroup"><option value="all">Vsi</option>${groups.map((g) => `<option ${R.group === g ? "selected" : ""}>${esc(g)}</option>`).join("")}</select></label>
       <label>Išči<input id="fQ" value="${esc(R.q)}" placeholder="ekipa, igralec…"></label>
-      <label style="flex-direction:row;align-items:center;gap:6px;text-transform:none;font-size:13px"><input type="checkbox" id="fOdds" ${R.onlyOdds ? "checked" : ""}> samo s kvoto</label>
+      <label class="check"><input type="checkbox" id="fOdds" ${R.onlyOdds ? "checked" : ""}> samo s kvoto</label>
     </div>
-    <div class="card scroll" style="padding:4px 6px"><table class="tbl">
+    <div class="card scroll" style="padding:4px 6px"><table class="tbl stack rank">
       <tr><th>#</th><th>Dogodek</th><th>Tekma</th><th>Čas</th><th>Verjetnost</th><th class="r">Fer</th><th class="r">Kvota</th><th class="r">Prednost</th></tr>
       ${shown.map((e, i) => `<tr class="${e.edge >= 0.05 && !e.m?.unreliable ? "hl" : ""}"><td class="faint num">${i + 1}</td><td>${SPORTS[e.sport]?.icon || ""} ${esc(e.title)}${e.m ? unreliableTag(e.m, e.match) : ""}</td><td class="muted">${esc(e.sub)}</td><td class="muted" style="white-space:nowrap">${fmtTime(e.kickoff)}</td><td>${pbar(e.p)}</td><td class="r num">${odds(1 / e.p)}</td><td class="r num">${odds(e.odds)}</td><td class="r">${edgeCell(e.edge, e.assumed)}</td></tr>`).join("")}
     </table>${ev.length > shown.length ? `<div class="muted" style="padding:8px;font-size:12px">Prikazanih ${shown.length} od ${ev.length}. Zoži filtre.</div>` : ""}
@@ -420,7 +490,8 @@ function viewRanking(v) {
 
 /* ---------- view: value ---------- */
 function valueEvents() {
-  return allEvents().filter((e) => e.edge != null && e.edge >= S.value.minEdge && e.p >= 0.3 && (S.value.inclAssumed || !e.assumed))
+  return allEvents().filter((e) => e.edge != null && e.edge >= S.value.minEdge && e.p >= 0.3 && (S.value.inclAssumed || !e.assumed)
+      && (S.value.showBad || !e.m?.unreliable))
     .sort((a, b) => (!!a.m?.unreliable - !!b.m?.unreliable) || b.edge - a.edge);
 }
 function viewValue(v) {
@@ -429,15 +500,17 @@ function viewValue(v) {
     <p class="section-note">Prednost = verjetnost × kvota − 1. Pozitivna prednost pomeni, da je kvota višja od fer kvote modela. Kvota z "~" je privzeta (-110), ker vir ni dal cene. Trgi z oznako "model nezanesljiv" (model se od Pinnaclea ali trga razlikuje za več kot 10 o. t.) niso value in se ne beležijo kot picki.</p>
     <div class="filters">
       <label>Min. prednost <span class="g" id="eV">${(S.value.minEdge * 100).toFixed(0)}%</span><input type="range" id="fEdge" min="0" max="0.3" step="0.01" value="${S.value.minEdge}"></label>
-      <label style="flex-direction:row;align-items:center;gap:6px;text-transform:none;font-size:13px"><input type="checkbox" id="fAss" ${S.value.inclAssumed ? "checked" : ""}> vključi privzete kvote</label>
+      <label class="check"><input type="checkbox" id="fAss" ${S.value.inclAssumed ? "checked" : ""}> privzete kvote</label>
+      <label class="check"><input type="checkbox" id="fBad" ${S.value.showBad ? "checked" : ""}> nezanesljivi trgi</label>
     </div>
-    <div class="card scroll" style="padding:4px 6px"><table class="tbl">
+    <div class="card scroll" style="padding:4px 6px"><table class="tbl stack">
       <tr><th>Dogodek</th><th>Tekma</th><th>Čas</th><th>Model</th><th class="r">Kvota</th><th class="r">Implicirano</th><th class="r">Prednost</th><th></th></tr>
       ${ev.map((e, i) => `<tr><td>${SPORTS[e.sport]?.icon || ""} ${esc(e.title)}${e.m ? unreliableTag(e.m, e.match) : ""}</td><td class="muted">${esc(e.sub)}</td><td class="muted" style="white-space:nowrap">${fmtTime(e.kickoff)}</td><td>${pbar(e.p)}</td><td class="r num">${odds(e.odds)}${e.assumed ? "~" : ""}</td><td class="r num">${pct(1 / e.odds)}</td><td class="r">${edgeCell(e.edge, e.assumed)}</td><td><button class="btn o s" data-post="${i}">Objava</button></td></tr>`).join("")}
     </table>${!ev.length ? `<div class="empty"><b>Ni value dogodkov</b>Ni kvot ali pa model ne vidi prednosti. "Tiho = malo pickov."</div>` : ""}</div>`;
   $("#fEdge").oninput = (e) => { S.value.minEdge = +e.target.value; $("#eV").textContent = (S.value.minEdge * 100).toFixed(0) + "%"; };
   $("#fEdge").onchange = () => render();
   $("#fAss").onchange = (e) => { S.value.inclAssumed = e.target.checked; render(); };
+  $("#fBad").onchange = (e) => { S.value.showBad = e.target.checked; render(); };
   v.querySelectorAll("[data-post]").forEach((b) => b.onclick = () => {
     S.post.selected = [evKey(ev[+b.dataset.post])]; S.post.type = "auto"; S.tab = "posts"; history.replaceState(null, "", "#posts"); render();
   });
@@ -763,3 +836,151 @@ function viewPosts(v) {
 }
 
 load();
+
+/* ---------- export for Claude ---------- */
+function claudeExport(day, sport, withPlayers, allMatches) {
+  const inDay = (iso) => day === "all2" ? [todayKey(0), todayKey(1)].includes(dayKey(iso)) : dayKey(iso) === day;
+  const spOk = (s) => sport === "all" || s === sport;
+  const ms = S.data.matches.filter((m) => inDay(m.kickoff) && spOk(m.sport)).sort((a, b) => a.kickoff.localeCompare(b.kickoff));
+  const hm = (iso) => new Date(iso).toLocaleTimeString("sl-SI", { hour: "2-digit", minute: "2-digit" });
+  const L = [];
+  const dayTxt = day === "all2" ? `${dayLabel(todayKey(0))} in ${dayLabel(todayKey(1)).toLowerCase()}` : dayLabel(day);
+  L.push(`# The Odds Room – podatki za analizo (${dayTxt}, ${sport === "all" ? "vsi športi" : SPORTS[sport]?.name})`);
+  L.push(`Generirano: ${new Date(S.data.meta.generated || Date.now()).toLocaleString("sl-SI")}`);
+  L.push("");
+  L.push("## Navodilo");
+  L.push("Si analitik športnih stav. Spodaj so ocene modela The Odds Room in kvote. Za vsak odprt pick in vsak value kandidat:");
+  L.push("1. oceni, ali je prednost realna ali verjetno napaka modela (primerjaj model s trgom brez marže; razlika nad 10 o. t. je sumljiva),");
+  L.push("2. preveri novice, postave in motivacijo, ki jih model ne vidi,");
+  L.push("3. predlagaj: igraj / manjši vložek / preskoči, z enim stavkom razloga.");
+  L.push("Na koncu izberi največ 3 najboljše picke dneva in 1 past (kratka kvota, ki je model ne podpira). Bodi kritičen; brez garancij.");
+  L.push("Pojmi: p = verjetnost modela, fer = 1/p, kvota = povprečje stavnic (ali ESPN), prednost = p × kvota − 1, trg = kvote brez marže.");
+  L.push("");
+  const st = S.data.picks.stats?.all || {};
+  L.push("## Stanje modela (dnevnik)");
+  L.push(`Picki: ${st.n ?? 0} (odprtih ${st.open ?? 0}) · Z–P–V ${st.won ?? 0}–${st.lost ?? 0}–${st.push ?? 0} · zadetki ${pct(st.hit, 1)} (model je čakal ${pct(st.avg_p, 1)}) · profit ${fmtNum(st.profit ?? 0, 2)}u · ROI ${st.roi == null ? "–" : (st.roi * 100).toFixed(1) + " %"} · Brier ${fmtNum(st.brier, 3)}`);
+  const bys = S.data.picks.stats?.by_sport || {};
+  if (Object.keys(bys).length) L.push("Po športih: " + Object.entries(bys).map(([k, v]) => `${SPORTS[k]?.name || k} ${v.won}–${v.lost}, ${fmtNum(v.profit, 2)}u`).join(" · "));
+  const cal = S.data.picks.stats?.calibration || [];
+  if (cal.length) L.push("Kalibracija (napovedano → dejansko): " + cal.filter((b) => b.n >= 5).map((b) => `${pct(b.pred)}→${pct(b.act)} (n${b.n})`).join(", "));
+  L.push("Varovalka: trgi, kjer se model od trga razlikuje za več kot 10 o. t., so označeni NEZANESLJIVO in se ne beležijo kot picki.");
+  L.push("");
+
+  const picks = (S.data.picks.picks || []).filter((p) => p.status === "open" && inDay(p.kickoff) && spOk(p.sport));
+  L.push(`## Odprti picki (${picks.length})`);
+  if (picks.length) {
+    L.push("| čas | šport | liga | tekma | pick | p | kvota | implic. | prednost | p zdaj | opozorilo |");
+    L.push("|---|---|---|---|---|---|---|---|---|---|---|");
+    for (const p of picks.sort((a, b) => a.kickoff.localeCompare(b.kickoff))) {
+      L.push(`| ${hm(p.kickoff)} | ${SPORTS[p.sport]?.name || p.sport} | ${p.league || ""} | ${p.home} – ${p.away} | ${slLabel(p, p)}${p.totd ? " (TOTD)" : ""} | ${pct(p.p)} | ${odds(p.odds)} | ${pct(1 / p.odds)} | ${(p.edge * 100).toFixed(1)} % | ${p.p_now != null ? pct(p.p_now) : "–"} | ${p.alert ? (p.alert.level === "red" ? "RDEČE: " : "RUMENO: ") + p.alert.text : ""} |`);
+    }
+  } else L.push("Ni odprtih pickov.");
+  L.push("");
+
+  const vals = [];
+  for (const x of ms) for (const m of x.markets) {
+    if (m.edge != null && m.edge >= 0.03 && m.p >= 0.35 && !m.odds_assumed) vals.push({ x, m });
+  }
+  vals.sort((a, b) => (a.m.unreliable - b.m.unreliable) || b.m.edge - a.m.edge);
+  const okVals = vals.filter((v) => !v.m.unreliable).slice(0, 30);
+  L.push(`## Value kandidati (prednost ≥ 3 %, zanesljivi; ${okVals.length})`);
+  if (okVals.length) {
+    L.push("| čas | tekma | trg | p | fer | kvota | prednost | trg brez marže |");
+    L.push("|---|---|---|---|---|---|---|---|");
+    for (const { x, m } of okVals) L.push(`| ${hm(x.kickoff)} | ${x.home} – ${x.away} (${x.league_name}) | ${slLabel(m, x)} | ${pct(m.p)} | ${odds(m.fair)} | ${odds(m.odds)} | +${(m.edge * 100).toFixed(1)} % | ${refFor(x, m)} |`);
+  } else L.push("Ni zanesljivih value kandidatov.");
+  L.push("");
+  const bad = ms.filter((x) => x.market_ref && x.markets.some((m) => m.unreliable))
+    .sort((a, b) => Math.max(b.market_ref.gap_1x2 || 0, b.market_ref.gap_ou || 0) - Math.max(a.market_ref.gap_1x2 || 0, a.market_ref.gap_ou || 0)).slice(0, 25);
+  L.push(`## Model nezanesljiv (razlika do trga > 10 o. t.; ${bad.length})`);
+  for (const x of bad) L.push(`- ${hm(x.kickoff)} ${x.home} – ${x.away} (${x.league_name}): ${refShort(x)}`);
+  if (!bad.length) L.push("Ni takih tekem.");
+  L.push("");
+
+  const show = allMatches ? ms : ms.filter((x) => bestValue(x) || x.availability || x.adj || picks.some((p) => p.match === x.id) || x.markets.some((m) => m.unreliable));
+  L.push(`## Tekme (${show.length}${allMatches ? "" : ` od ${ms.length}: s pickom, value, novico ali opozorilom`})`);
+  for (const x of show.slice(0, 80)) L.push(matchLine(x, hm));
+  if (show.length > 80) L.push(`… in še ${show.length - 80} tekem.`);
+  L.push("");
+
+  if (withPlayers) {
+    const pp = [];
+    for (const [sp, list] of Object.entries(S.data.players)) {
+      if (!Array.isArray(list) || !spOk(sp)) continue;
+      for (const pl of list) {
+        const x = pl.next && S.data.byId[pl.next.match];
+        if (!x || !inDay(x.kickoff) || !pl.props) continue;
+        for (const pr of pl.props) if (pr.p >= 0.55 && pr.p <= 0.85) pp.push({ pl, pr, x });
+      }
+    }
+    pp.sort((a, b) => b.pr.p - a.pr.p);
+    L.push(`## Igralci: verjetni dogodki 55–85 % (top ${Math.min(25, pp.length)})`);
+    for (const { pl, pr, x } of pp.slice(0, 25)) L.push(`- ${pl.name} (${pl.team}, ${pl.next.home ? "doma" : "v gosteh"} vs ${pl.next.opp}, ${hm(x.kickoff)}): ${pr.label} ${pct(pr.p)}, fer ${odds(1 / pr.p)}${pl.next.status && pl.next.status !== "ok" ? ` [${pl.next.status}]` : ""}`);
+    if (!pp.length) L.push("Ni podatkov o igralcih za ta dan.");
+  }
+  return L.join("\n");
+}
+function refFor(x, m) {
+  const r = x.market_ref;
+  if (!r) return "–";
+  if (m.scope === "match" && r.p[m.kind] != null) return pct(r.p[m.kind]);
+  const side = (q) => pct(m.kind === "over" ? q : 1 - q);
+  if (m.scope === "total" && m.line === 2.5 && r.p["over2.5"] != null) return side(r.p["over2.5"]);
+  if (m.scope === "total" && m.line === r.line && r.p.over != null) return side(r.p.over);
+  return "–";
+}
+function refShort(x) {
+  const r = x.market_ref;
+  const k = (c) => r.p[c] != null ? `${c} ${pct(r.model[c])}/${pct(r.p[c])}` : null;
+  return [k("1"), k("X"), k("2"), r.p["over2.5"] != null ? `O2.5 ${pct(r.model["over2.5"])}/${pct(r.p["over2.5"])}` : null,
+    r.p.over != null ? `O${r.line} ${pct(r.model.over)}/${pct(r.p.over)}` : null].filter(Boolean).join(", ") + ` (model/trg, ${SRC_SL[r.src] || r.src})`;
+}
+function matchLine(x, hm) {
+  const h = mkt(x, "match", "1"), d = mkt(x, "match", "X"), a = mkt(x, "match", "2");
+  const parts = [`${hm(x.kickoff)} ${SPORTS[x.sport]?.name}/${x.league_name}: ${x.home} – ${x.away}`];
+  parts.push(`pričak. ${fmtNum(x.exp[0], x.sport === "football" || x.sport === "nhl" ? 2 : 1)}–${fmtNum(x.exp[1], x.sport === "football" || x.sport === "nhl" ? 2 : 1)}`);
+  if (h && a) parts.push(`1X2 ${pct(h.p)}/${d && x.sport === "football" ? pct(d.p) + "/" : ""}${pct(a.p)}`);
+  if (x.market_ref) parts.push(`trg ${refShort(x)}`);
+  if (x.sport === "football") {
+    const o = mkt(x, "total", "over", 2.5), b = mkt(x, "btts", "yes");
+    if (o) parts.push(`O2.5 ${pct(o.p)}`);
+    if (b) parts.push(`BTTS ${pct(b.p)}`);
+  }
+  const f = (side) => (x.form?.[side] || []).map((g) => g.r).join("");
+  if (x.form?.home?.length) parts.push(`forma ${f("home")} / ${f("away")}`);
+  const abs = ["home", "away"].map((s) => absList(x, s).filter((q) => q.status === "out").map((q) => q.name).slice(0, 4));
+  if (abs[0].length || abs[1].length) parts.push(`manjkajo: ${abs[0].join(", ") || "–"} | ${abs[1].join(", ") || "–"}`);
+  if (x.availability?.lineup) parts.push("postavi potrjeni");
+  if (x.adj) parts.push(`prilagojeno: ${adjText(x)}`);
+  const v = bestValue(x);
+  if (v) parts.push(`VALUE: ${slLabel(v, x)} @ ${odds(v.odds)} (p ${pct(v.p)}, +${(v.edge * 100).toFixed(1)} %)`);
+  if (x.markets.some((m) => m.unreliable)) parts.push("NEZANESLJIVO");
+  return "- " + parts.join(" · ");
+}
+function todayKey(offset) {
+  const d = new Date(); d.setDate(d.getDate() + offset);
+  return dayKey(d.toISOString());
+}
+function openClaude() {
+  const m = $("#claudeModal");
+  const days = [...new Set(S.data.matches.map((x) => dayKey(x.kickoff)))].sort().filter((d) => d >= todayKey(0)).slice(0, 7);
+  $("#cmDay").innerHTML = days.map((d) => `<option value="${d}">${dayLabel(d)}</option>`).join("") + `<option value="all2">Danes + jutri</option>`;
+  $("#cmSport").innerHTML = `<option value="all">Vsi</option>` + Object.entries(SPORTS).map(([k, v]) => `<option value="${k}" ${S.sport === k ? "selected" : ""}>${v.name}</option>`).join("");
+  const upd = () => {
+    const t = claudeExport($("#cmDay").value, $("#cmSport").value, $("#cmPlayers").checked, $("#cmAll").checked);
+    $("#cmText").value = t;
+    $("#cmCount").textContent = `${t.length.toLocaleString("sl-SI")} znakov`;
+  };
+  ["#cmDay", "#cmSport", "#cmPlayers", "#cmAll"].forEach((id) => ($(id).onchange = upd));
+  upd();
+  m.hidden = false;
+}
+$("#claudeBtn").onclick = () => openClaude();
+$("#cmClose").onclick = () => ($("#claudeModal").hidden = true);
+$("#claudeModal").addEventListener("click", (e) => { if (e.target.id === "claudeModal") e.target.hidden = true; });
+$("#cmCopy").onclick = () => {
+  const t = $("#cmText").value;
+  const done = () => { $("#cmCopy").textContent = "Kopirano ✓"; setTimeout(() => ($("#cmCopy").textContent = "Kopiraj"), 1500); };
+  if (navigator.clipboard?.writeText) navigator.clipboard.writeText(t).then(done, () => { $("#cmText").select(); document.execCommand("copy"); done(); });
+  else { $("#cmText").select(); document.execCommand("copy"); done(); }
+};

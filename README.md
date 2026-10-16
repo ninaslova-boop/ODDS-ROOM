@@ -20,6 +20,8 @@ Orodja za kanal **The Odds Room**.
   Za naslednjo tekmo: verjetnost npr. 1+ strel v okvir, 3+ SOG, več kot X točk.
 - **Postave in poškodbe**: odsotni igralci, potrjene postave (~1 h pred tekmo); model prilagodi moč ekipe in napovedi igralcev.
 - **Dnevnik**: model sam zabeleži value pick pred tekmo in ga po tekmi zaključi. Profit, ROI, kalibracija.
+- **Za Claude** (gumb zgoraj desno): povzetek izbranega dne (navodilo za analizo, odprti picki, value kandidati,
+  model proti trgu, nezanesljivi trgi, postave, poškodbe, igralci, stanje dnevnika). Kopiraj in prilepi v Claude.
 - **Objave**: besedilo za Threads/Instagram (Tip of the Day, Value Pick, Goals Galore, Lockdown, Trap + FLIP, Bold Play, Acca/Builder).
 
 ### Viri (brezplačni)
@@ -48,8 +50,10 @@ Orodja za kanal **The Odds Room**.
   vzorca pokalnih tekem.
   Domače ocene: football-data.co.uk (16 lig) + ESPN (Avstrija, Norveška, Danska, Švedska, Švica, Češka, Ciper,
   Izrael, Romunija, Irska); za klube iz ostalih lig se uporabi jakost njihove lige.
+- **Domače lige**: ridge po ligi iz backtesta (prve lige 8–10, druge lige 15).
 - **Varovalka trga**: če se model pri 1X2 ali O/U 2.5 od Pinnacla brez marže (sicer od ESPN ali povprečja
   stavnic) razlikuje za več kot 10 o. t., je trg označen »model nezanesljiv« in se ne beleži kot pick.
+  Enako za NHL in NBA (izid in skupaj proti ESPN kvotam brez marže).
   Kjer je Pinnacle na voljo, so verjetnosti 0.4 model + 0.6 Pinnacle.
 
 Model ne ve za motivacijo in vse novice. Vedno preveri novice pred objavo.
