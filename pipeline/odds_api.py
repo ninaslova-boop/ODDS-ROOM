@@ -6,11 +6,12 @@ default list uses about 12 credits per day (about 360 per month).
 """
 from __future__ import annotations
 
+import datetime as dt
 import logging
 import os
 
 from . import models
-from .util import CACHE_DIR, http_get, match_name, now_utc, parse_iso, read_json, write_json
+from .util import CACHE_DIR, http_get, iso, match_name, name_variant, now_utc, parse_iso, read_json, write_json
 
 log = logging.getLogger("pipeline.odds_api")
 
@@ -31,18 +32,41 @@ def _avg(prices: list[float]) -> float | None:
     return round(sum(prices) / len(prices), 3) if prices else None
 
 
-def fetch(key: str, sport: str) -> list[dict]:
-    """Fetch once per UTC day (3 runs a day would use about 540 credits / month), reuse the cache otherwise."""
+DAY_AHEAD_H = 36      # no fetch when the sport has no match in the next 36 hours
+CLOSE_H = 2.5         # a second fetch when a match starts within 2.5 hours (closing prices)
+
+
+def need_fetch(hit: dict | None, kickoffs: list[dt.datetime], now: dt.datetime) -> str | None:
+    """"daily" (first fetch of the UTC day), "close" (a match starts soon and the last fetch is older than
+    the start of its closing window) or None. No fetch at all when no match is near (saves credits)."""
+    soon = [t for t in kickoffs if now < t <= now + dt.timedelta(hours=DAY_AHEAD_H)]
+    if not soon:
+        return None
+    if not hit or hit.get("day") != now.date().isoformat():
+        return "daily"
+    last = parse_iso(hit["t"]) if hit.get("t") else None
+    closing = [t for t in soon if t - now <= dt.timedelta(hours=CLOSE_H)]
+    if closing and (last is None or last < min(closing) - dt.timedelta(hours=CLOSE_H)):
+        return "close"
+    return None
+
+
+def fetch(key: str, sport: str, kickoffs: list[dt.datetime] | None = None) -> list[dict]:
+    """Once per UTC day, and once more close to kickoff; the cache is used otherwise.
+    Budget (free plan, 500 credits / month): 2 credits per fetch, only on days with matches."""
     path = CACHE_DIR / "odds_api.json"
     cache = read_json(path, {})
-    today = now_utc().date().isoformat()
     hit = cache.get(sport)
-    if hit and hit.get("day") == today:
-        return hit["events"]
+    now = now_utc()
+    why = need_fetch(hit, kickoffs or [], now) if kickoffs is not None else (
+        None if hit and hit.get("day") == now.date().isoformat() else "daily")
+    if not why:
+        return hit["events"] if hit else []
     events = http_get(f"https://api.the-odds-api.com/v4/sports/{sport}/odds",
                     params={"apiKey": key, "regions": "eu", "markets": "h2h,totals", "oddsFormat": "decimal"})
-    cache[sport] = {"day": today, "events": events}
+    cache[sport] = {"day": now.date().isoformat(), "t": iso(now), "why": why, "events": events}
     write_json(path, cache)
+    log.info("The Odds API %s: %s fetch, %d events", sport, why, len(events))
     return events
 
 
@@ -58,7 +82,7 @@ def apply(matches: list[dict]) -> list[str]:
         if not pool:
             continue
         try:
-            events = fetch(key, sport)
+            events = fetch(key, sport, [parse_iso(m["kickoff"]) for m in pool])
         except Exception as e:  # noqa: BLE001
             errors.append(f"The Odds API {sport}: {e}")
             continue
@@ -143,9 +167,10 @@ def bet365_prices(b: dict, ev: dict) -> dict:
 
 def find_match(ev: dict, pool: list[dict]) -> dict | None:
     """The match of an Odds API event: kickoff within KICKOFF_TOL_MIN and the same teams.
-    The Odds API often writes names in another way ("Omonoia FC", "Los Angeles Clippers"). So when one team
-    matches by name, the other one is accepted if its name is not the name of ANOTHER team we know.
-    When it is (e.g. "Deportivo La Coruna" where we have "Alaves"), the match gets a "mismatch" note."""
+    The Odds API often writes names in another way ("Omonoia FC", "Saski Baskonia"). So when one team
+    matches by name, the other one is accepted only when it is a spelling variant of our team
+    (util.name_variant) and not the name of another team we know. Otherwise (e.g. "RC Deportivo"
+    where we have "Alaves") the match gets a "mismatch" note: DATA MISMATCH, no price, no pick."""
     t = parse_iso(ev["commence_time"])
     near = [m for m in pool if abs((parse_iso(m["kickoff"]) - t).total_seconds()) <= KICKOFF_TOL_MIN * 60]
     for m in near:
@@ -159,7 +184,9 @@ def find_match(ev: dict, pool: list[dict]) -> dict | None:
             continue
         other_name, ours = (ev["away_team"], m["away"]) if h_ok else (ev["home_team"], m["home"])
         hit = match_name(other_name, known)
-        if hit and hit != ours:
+        # accepted only as a spelling variant of OUR team; an unknown or other club is a DATA MISMATCH
+        # (16 Oct 2026: "RC Deportivo – Levante" must never be priced as "Alaves – Levante")
+        if (hit and hit != ours) or (not hit and not name_variant(other_name, ours)):
             m["mismatch"] = f"The Odds API ob tem času: {ev['home_team']} – {ev['away_team']}"
         return m
     return None

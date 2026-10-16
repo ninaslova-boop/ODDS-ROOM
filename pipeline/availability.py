@@ -4,7 +4,11 @@ Sources (all free):
 * Fantasy Premier League API: injury / suspension status and "chance of playing" (Premier League).
 * ESPN soccer summary: confirmed lineups, about 1 hour before kick-off (every league ESPN covers).
 * ESPN injuries: NBA and NHL injury reports.
-* API-Football (optional, secret API_FOOTBALL_KEY, free plan 100 calls/day): injuries for all leagues.
+* API-Football: OFF. The free plan has no current season, so the app does not depend on it
+  (only with API_FOOTBALL_INJURIES=1 and a paid key).
+* Football outside the Premier League: no free current-season injury source exists. ESPN has injury
+  endpoints for football, but they are empty (checked 16 Oct 2026 for fra.1, esp.1, eng.1). The export
+  says "injury data: none" for these leagues; lineups (~1 h before kick-off) are still used.
 
 Output per match: {"lineup": {"home": [...], "away": [...], "bench": {...}} | None,
                    "absent": {"home": [{name, status, reason}], "away": [...]}}
@@ -252,8 +256,11 @@ def collect(matches: list[dict], today: dt.date, extra: dict[str, dict] | None =
         if got is not None:
             cov.setdefault(sp, []).append("ESPN")
     n_err = len(errors)
-    apif = safe("API-Football injuries", api_football_injuries, [today + dt.timedelta(days=i) for i in range(4)]) or []
-    if len(errors) == n_err and os.environ.get("API_FOOTBALL_KEY", "").strip():
+    apif = []
+    use_apif = os.environ.get("API_FOOTBALL_INJURIES") == "1" and os.environ.get("API_FOOTBALL_KEY", "").strip()
+    if use_apif:
+        apif = safe("API-Football injuries", api_football_injuries, [today + dt.timedelta(days=i) for i in range(4)]) or []
+    if use_apif and len(errors) == n_err:
         for m in matches:
             if m["sport"] == "football":
                 cov.setdefault(m["league"], [])

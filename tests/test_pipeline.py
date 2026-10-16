@@ -1,4 +1,6 @@
 import datetime as dt
+import json
+from pathlib import Path
 import math
 import random
 
@@ -921,3 +923,101 @@ def test_euroleague_season_and_last5_averages_and_props(monkeypatch, tmp_path):
     assert ts["Paris Basketball"]["season"] == {"pts": 90.0, "reb": 35.0, "ast": 18.0, "tpm": 10.0, "opp_pts": 85.0}
     assert ts["AS Monaco"]["gp"] == 7 and ts["AS Monaco"]["l5"]["opp_pts"] == 90.0
     elp.attach_team_stats([{"sport": "euroleague", **el["matches"][0]}], ts)
+
+
+def test_one_team_rule_never_reopens_deportivo():
+    """Only 'Levante' agrees at the same kickoff and the other team is unknown: DATA MISMATCH, not a match."""
+    from pipeline import odds_api
+    from pipeline.util import name_variant
+    for other in ("RC Deportivo", "Deportivo", "Deportivo A Coruña", "Unknown Town"):
+        pool = [{"home": "Alaves", "away": "Levante", "kickoff": "2026-10-16T19:00:00Z", "markets": []}]
+        ev = {"commence_time": "2026-10-16T19:00:00Z", "home_team": other, "away_team": "Levante"}
+        m = odds_api.find_match(ev, pool)
+        assert m is pool[0] and "mismatch" in m, other
+    # spelling variants of our own team stay a match
+    for ours, theirs in (("Omonia Nicosia", "Omonoia FC"), ("Kosner Baskonia Vitoria-Gasteiz", "Saski Baskonia"),
+                         ("Besiktas Istanbul", "Beşiktaş J.K."), ("Crvena Zvezda Meridianbet Belgrade", "KK Crvena zvezda"),
+                         ("Armani Olimpia Milan", "Pallacanestro Olimpia Milano"), ("F.C. København", "FC Copenhagen")):
+        pool = [{"home": ours, "away": "Real Madrid", "kickoff": "2026-10-22T19:00:00Z", "markets": []}]
+        ev = {"commence_time": "2026-10-22T19:00:00Z", "home_team": theirs, "away_team": "Real Madrid"}
+        m = odds_api.find_match(ev, pool)
+        assert m is pool[0] and "mismatch" not in m, theirs
+    assert not name_variant("RC Deportivo", "Alaves") and not name_variant("Deportivo", "Deportivo Alaves")
+
+
+def test_voided_picks_never_counted_and_only_publishable_markets():
+    log = json.loads((Path(__file__).resolve().parents[1] / "data" / "picks_log.json").read_text(encoding="utf-8"))
+    st = picks.stats(log["picks"], [])["all"]
+    voided = [p for p in log["picks"] if p["status"] == "void"]
+    # the voided card picks were never settled, so they never were in the won / lost totals
+    assert all(p.get("result") is None for p in voided)
+    assert st["void"] == len(voided) and st["n"] == len(log["picks"]) - len(voided)
+    old = [p for p in log["picks"] if not p.get("odds_src")]
+    assert (st["won"], st["lost"]) == (sum(p["status"] == "won" for p in old), sum(p["status"] == "lost" for p in old))
+    # automatic picks: no cards, corners, team totals, double chance; BTTS only with its own bet365 price
+    mk = [{"stat": "cards", "scope": "total", "kind": "over", "line": 2.5, "p": 0.9, "b365": 1.5},
+          {"stat": "corners", "scope": "total", "kind": "over", "line": 9.5, "p": 0.9, "b365": 1.5},
+          {"stat": "goals", "scope": "home", "kind": "over", "line": 1.5, "p": 0.9, "b365": 1.5},
+          {"stat": "goals", "scope": "match", "kind": "1X", "line": None, "p": 0.9, "b365": 1.5},
+          {"stat": "goals", "scope": "btts", "kind": "yes", "line": None, "p": 0.9},
+          {"stat": "goals", "scope": "btts", "kind": "no", "line": None, "p": 0.6, "b365": 2.0},
+          {"stat": "goals", "scope": "total", "kind": "over", "line": 2.5, "p": 0.6, "b365": 1.9}]
+    for x in mk:
+        x.setdefault("label", "x"); x.setdefault("group", "g")
+    c = picks.candidates({"id": "m", "sport": "football", "markets": mk})
+    assert {(x["scope"], x["kind"]) for x in c} == {("btts", "no"), ("total", "over")}
+
+
+def test_euroleague_props_need_five_games(monkeypatch, tmp_path):
+    from pipeline import euroleague_players as elp
+    el = {"matches": [{"id": "euroleague:x", "home": "AS Monaco", "away": "Paris Basketball",
+                       "kickoff": "2026-10-30T18:00:00Z"}]}
+    elp4, _ = _el_api(monkeypatch, tmp_path / "a", [10, 12, 14, 16])
+    row = next(r for r in elp4.players(el, elp4.load(dt.date(2026, 10, 16))) if r["name"] == "Nadir Hifi")
+    assert row["gp"] == 4 and row["props"] is None and row["props_note"] == "too few games (4/5)"
+    assert "proj_pts" not in row["next"] and row["l5"]["pts"] == 13.0       # averages are still shown
+    elp5, _ = _el_api(monkeypatch, tmp_path / "b", [10, 12, 14, 16, 18])
+    row5 = next(r for r in elp5.players(el, elp5.load(dt.date(2026, 10, 16))) if r["name"] == "Nadir Hifi")
+    assert row5["props"] and "props_note" not in row5
+
+
+def test_price_history_snapshots_and_close_fetch(monkeypatch, tmp_path):
+    from pipeline import odds_api, price_history
+    monkeypatch.setattr(price_history, "DIR", tmp_path)
+    now = dt.datetime(2026, 10, 16, 12, 0, tzinfo=dt.timezone.utc)
+    m = {"id": "nhl:1", "sport": "nhl", "league": "NHL", "home": "A", "away": "B", "kickoff": "2026-10-16T23:00:00Z",
+         "odds_raw": {"ml_home": 1.9, "ml_away": 2.0, "total": 6.5, "over": 1.95, "under": 1.87, "ref_src": "pinnacle",
+                      "n_books": 9}, "markets": []}
+    other = {"id": "fb:E0:x", "sport": "football", "league": "E0", "home": "C", "away": "D",
+             "kickoff": "2026-10-16T23:00:00Z", "odds_raw": {"1": 2.0, "X": 3.4, "2": 3.6}, "markets": []}
+    assert price_history.record([m, other], now) == 1                     # domestic football is not tracked
+    assert price_history.record([m], now + dt.timedelta(hours=1)) == 0    # one daily snapshot only
+    assert price_history.record([m], now + dt.timedelta(hours=9)) == 1    # close: within 3 h of kickoff
+    snap = price_history.load("nhl")["nhl:1"]
+    assert snap["src"] == "pinnacle" and snap["p"]["1"] == pytest.approx(2.0 / 3.9, abs=1e-3) and snap["line"] == 6.5
+    # The Odds API: no fetch without a near match, daily fetch, then once more close to kickoff
+    ko = [dt.datetime(2026, 10, 16, 23, 0, tzinfo=dt.timezone.utc)]
+    assert odds_api.need_fetch(None, [], now) is None
+    assert odds_api.need_fetch(None, ko, now) == "daily"
+    hit = {"day": "2026-10-16", "t": "2026-10-16T08:00:00Z"}
+    assert odds_api.need_fetch(hit, ko, now) is None
+    assert odds_api.need_fetch(hit, ko, dt.datetime(2026, 10, 16, 21, 0, tzinfo=dt.timezone.utc)) == "close"
+    hit2 = {"day": "2026-10-16", "t": "2026-10-16T21:00:00Z"}
+    assert odds_api.need_fetch(hit2, ko, dt.datetime(2026, 10, 16, 22, 0, tzinfo=dt.timezone.utc)) is None
+
+
+def test_user_picks_are_settled_from_the_repo_file(monkeypatch, tmp_path):
+    from pipeline import user_picks
+    f = tmp_path / "user_picks.json"
+    f.write_text(json.dumps({"picks": [
+        {"key": "a", "match": "nhl:1", "sport": "nhl", "stat": "goals", "scope": "match", "kind": "1", "line": None,
+         "p_final": 0.55, "odds": 2.0},
+        {"key": "b", "match": "nba:2", "sport": "nba", "stat": "points", "scope": "total", "kind": "under", "line": 177.5,
+         "p_final": 0.52, "odds": 1.95},
+        {"key": "c", "match": "fb:x", "sport": "football", "stat": "goals", "scope": "match", "kind": "X", "line": None,
+         "p_final": 0.3, "odds": 3.6}]}), encoding="utf-8")
+    monkeypatch.setattr(user_picks, "FILE", f)
+    out = user_picks.publish({"nhl:1": {"goals": [3, 2]}, "nba:2": {"points": [90, 90]}})
+    st = {p["key"]: p["status"] for p in out["picks"]}
+    assert st == {"a": "won", "b": "lost", "c": "open"}
+    assert out["stats"]["all"]["won"] == 1 and out["stats"]["all"]["profit"] == pytest.approx(0.0)
