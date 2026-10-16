@@ -136,6 +136,8 @@ ALIASES = {
     "basaksehir": "buyuksehyr", "goztepe": "goztep", "fatih karagumruk": "karagumruk",
     "real sociedad b": "sociedad b", "celta vigo b": "celta b", "racing santander": "santander",
     "sporting gijon": "sp gijon", "deportivo la coruna": "la coruna", "celta fortuna": "celta b",
+    # US team names
+    "los angeles clippers": "la clippers", "la lakers": "los angeles lakers",
 }
 
 

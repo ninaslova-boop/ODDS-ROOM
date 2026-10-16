@@ -826,6 +826,10 @@ def test_odds_api_name_variants_are_not_mismatches():
     assert m2 is pool[1] and "mismatch" in m2
     assert match_name("Hertha Berlin", ["Hertha", "Holstein Kiel"]) == "Hertha"
     assert match_name("RC Celta Fortuna", ["Celta B", "Tenerife"]) == "Celta B"
+    nba = [{"home": "LA Clippers", "away": "Sacramento Kings", "kickoff": "2026-10-22T02:30:00Z", "markets": []},
+           {"home": "Los Angeles Lakers", "away": "Utah Jazz", "kickoff": "2026-10-22T03:00:00Z", "markets": []}]
+    ev3 = {"commence_time": "2026-10-22T02:30:00Z", "home_team": "Los Angeles Clippers", "away_team": "Sacramento Kings"}
+    assert odds_api.find_match(ev3, nba) is nba[0] and "mismatch" not in nba[0]
 
 
 def test_bet365_goal_prices_never_on_cards_or_corners():
