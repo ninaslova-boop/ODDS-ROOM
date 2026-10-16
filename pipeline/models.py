@@ -380,3 +380,19 @@ def settle(market: dict, h: float, a: float, hockey: bool = False) -> int | None
             return None
         return int(v > 0)
     return None
+
+
+def attach_b365(markets: list[dict], b365: dict | None):
+    """bet365 prices on the markets: b365 = {"1", "X", "2", "over2.5", "under2.5", "tot": [[side, line, price]]}.
+    Only real bet365 prices (football-data.co.uk B365 columns or The Odds API "bet365"), never an average."""
+    if not b365:
+        return
+    tot = {(s, float(l)): p for s, l, p in b365.get("tot", [])}
+    for m in markets:
+        price = None
+        if m["scope"] == "match" and m["kind"] in ("1", "X", "2"):
+            price = b365.get(m["kind"])
+        elif m["scope"] == "total" and m.get("line") is not None:
+            price = tot.get((m["kind"], float(m["line"]))) or (b365.get(f"{m['kind']}2.5") if m["line"] == 2.5 else None)
+        if price and price > 1:
+            m["b365"] = round(price, 3)

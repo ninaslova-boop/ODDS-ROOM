@@ -39,6 +39,7 @@ def parse_event(ev: dict) -> dict | None:
         "id": str(ev.get("id")), "d": ev.get("date"), "st": season_type,
         "h": h["team"].get("displayName"), "a": a["team"].get("displayName"),
         "ha": h["team"].get("abbreviation"), "aa": a["team"].get("abbreviation"),
+        "hid": str(h["team"].get("id") or h.get("id") or "") or None, "aid": str(a["team"].get("id") or a.get("id") or "") or None,
         "hs": score(h) if done else None, "as": score(a) if done else None, "done": done,
         "neutral": bool(comp.get("neutralSite")),
     }

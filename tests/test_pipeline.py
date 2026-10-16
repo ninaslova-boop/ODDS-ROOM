@@ -5,7 +5,7 @@ import random
 import numpy as np
 import pytest
 
-from pipeline import espn, football, models, picks, players
+from pipeline import adjust, espn, football, models, picks, players, sports
 from pipeline.util import american_to_decimal, match_name, norm_name
 
 
@@ -144,23 +144,66 @@ def test_player_helpers():
     assert players._made("3-7") == 3
 
 
+def _pick_match(ko, unreliable=False):
+    m = {"id": "fb:E0:x:A:B", "sport": "football", "league_name": "PL", "home": "A", "away": "B",
+         "kickoff": ko, "blend": {"w": 0.4}, "markets": [
+             {"stat": "goals", "scope": "total", "kind": "over", "line": 2.5, "p": 0.62, "p_model": 0.66,
+              "odds": 1.95, "b365": 1.70, "label": "Over 2.5", "group": "Skupni goli"},
+             {"stat": "goals", "scope": "match", "kind": "1", "line": None, "p": 0.45, "p_model": 0.5,
+              "odds": 2.4, "b365": 2.30, "label": "1", "group": "Izid"},
+             {"stat": "goals", "scope": "match", "kind": "2", "line": None, "p": 0.30, "odds": 3.9,
+              "label": "2", "group": "Izid"}]}
+    if unreliable:
+        m["markets"][0]["unreliable"] = True
+    return m
+
+
 def test_picks_flow():
     now = dt.datetime.now(dt.timezone.utc)
     ko = (now + dt.timedelta(hours=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    match = {"id": "fb:E0:x:A:B", "sport": "football", "league_name": "PL", "home": "A", "away": "B",
-             "kickoff": ko, "markets": [
-                 {"stat": "goals", "scope": "total", "kind": "over", "line": 2.5, "p": 0.62, "odds": 1.9,
-                  "label": "Over 2.5", "group": "Skupni goli"},
-                 {"stat": "goals", "scope": "match", "kind": "1", "line": None, "p": 0.45, "odds": 2.0,
-                  "label": "1", "group": "Izid"}]}
+    match = _pick_match(ko)
+    # over: 0.62 x 1.70 = 1.054 (pick); home: 0.45 x 2.30 = 1.035 (pick, lower); away: no bet365 price
     log = picks.update({}, [match], {})
     assert len(log["picks"]) == 1
     p = log["picks"][0]
-    assert p["kind"] == "over" and p["status"] == "open" and p.get("totd")
+    assert p["kind"] == "over" and p["status"] == "open" and p["odds"] == 1.70 and p["odds_src"] == "bet365"
+    assert p["p_model"] == 0.66 and p["w"] == 0.4 and not p["strong"] and "totd" not in p
     # logging again does not duplicate; settle with a 2-1 result
     log = picks.update(log, [match], {"fb:E0:x:A:B": {"goals": [2, 1]}})
     assert len(log["picks"]) == 1 and log["picks"][0]["status"] == "won"
-    assert log["stats"]["all"]["profit"] == pytest.approx(0.9)
+    assert log["stats"]["all"]["profit"] == pytest.approx(0.7)
+    assert log["stats"]["by_w"]["football"]["w=0.4"]["won"] == 1
+    assert log["stats"]["picks_calibration"][0]["n"] == 1
+
+
+def test_pick_rule_and_strong_flag():
+    assert picks.is_pick(0.5, 2.01) and not picks.is_pick(0.5, 2.0) and not picks.is_pick(0.9, None)
+    m = _pick_match("2030-01-01T00:00:00Z")
+    m["markets"][1]["b365"] = 2.5          # 0.45 x 2.5 = 1.125
+    c = picks.candidates(m)
+    assert c[0]["kind"] == "1" and c[0]["strong"] and c[1]["kind"] == "over" and not c[1]["strong"]
+    # an average price is never used: without bet365 there is no pick
+    for x in m["markets"]:
+        x.pop("b365", None)
+    assert picks.candidates(m) == []
+
+
+def test_unreliable_match_never_creates_a_logged_pick():
+    now = dt.datetime.now(dt.timezone.utc)
+    ko = (now + dt.timedelta(hours=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    # only the over market is flagged, but the 1X2 pick must not be logged either
+    m = _pick_match(ko, unreliable=True)
+    assert picks.candidates(m) == []
+    assert picks.update({}, [m], {})["picks"] == []
+    m2 = _pick_match(ko)
+    m2["mismatch"] = "ESPN ob tem času: X – B"
+    assert picks.update({}, [m2], {})["picks"] == []
+    # flagged after logging: the pick stays (honest log) but gets a red alert
+    m3 = _pick_match(ko)
+    log = picks.update({}, [m3], {})
+    m3["unreliable"] = True
+    picks.live_alerts(log["picks"], [m3])
+    assert log["picks"][0]["alert"]["level"] == "red"
 
 
 def test_espn_fetches_days_in_parallel(monkeypatch):
@@ -362,22 +405,71 @@ def test_lineup_with_unmatched_names_is_ignored():
     assert a["props"] and a["next"]["status"] == "ok"
 
 
-def test_espn_fixture_fallback(monkeypatch):
+def _espn_ev(i, d, h, a, hid=None, aid=None, **kw):
+    return {"id": str(i), "d": d, "h": h, "a": a, "hid": hid, "aid": aid, "done": False, **kw}
+
+
+def test_espn_fixture_fallback(monkeypatch, tmp_path):
+    from pipeline import teams
     events = [
-        {"id": "1", "d": "2026-10-18T14:00Z", "h": "Manchester United", "a": "Brighton & Hove Albion", "done": False,
-         "odds": {"ml_home": 2.1, "ml_draw": 3.4, "ml_away": 3.3, "total": 2.5, "over": 1.8, "under": 2.0}},
-        {"id": "2", "d": "2026-10-18T16:30Z", "h": "Arsenal", "a": "Fulham", "done": False},
-        {"id": "3", "d": "2026-10-18T16:30Z", "h": "Unknown Town", "a": "Fulham", "done": False},
+        _espn_ev(1, "2026-10-18T14:00Z", "Manchester United", "Brighton & Hove Albion", "11", "12",
+                 odds={"ml_home": 2.1, "ml_draw": 3.4, "ml_away": 3.3, "total": 2.5, "over": 1.8, "under": 2.0}),
+        _espn_ev(2, "2026-10-18T16:30Z", "Arsenal", "Fulham", "13", "14"),
+        _espn_ev(3, "2026-10-19T16:30Z", "Unknown Town", "Leeds", "15", "16"),
     ]
     monkeypatch.setattr(football.espn, "_fetch_range", lambda *a, **k: (events, 1, True))
-    rows, unmatched = football.espn_fixtures("E0", ["Man United", "Brighton", "Arsenal", "Fulham"],
-                                             dt.date(2026, 10, 14), 7)
-    assert [(r["HomeTeam"], r["AwayTeam"]) for r in rows] == [("Man United", "Brighton"), ("Arsenal", "Fulham")]
-    assert unmatched == ["Unknown Town - Fulham"]
-    assert football.odds_from_row(rows[0])["1"] == 2.1 and football.odds_from_row(rows[0])["over2.5"] == 1.8
-    csv_row = {"Div": "E0", "HomeTeam": "Arsenal", "AwayTeam": "Fulham", "_date": dt.date(2026, 10, 18), "AvgH": "1.4"}
-    merged = football.merge_fixtures([csv_row], rows)
-    assert len(merged) == 2 and merged[0]["_espn"]["id"] == "2" and merged[0]["AvgH"] == "1.4"
+    reg = teams.Registry(tmp_path / "ids.json", tmp_path / "none.json")
+    games, covered = football.espn_fixtures("E0", ["Man United", "Brighton", "Arsenal", "Fulham", "Leeds"],
+                                            dt.date(2026, 10, 14), 7, reg)
+    assert [(g["rh"], g["ra"]) for g in games] == [("Man United", "Brighton"), ("Arsenal", "Fulham"), (None, "Leeds")]
+    csv_row = {"Div": "E0", "HomeTeam": "Arsenal", "AwayTeam": "Fulham", "_date": dt.date(2026, 10, 18),
+               "_kickoff": "2026-10-18T16:30:00Z", "AvgH": "1.4"}
+    rows, bad = teams.cross_check([csv_row], games, "Premier League", covered)
+    assert [(r["HomeTeam"], r["_check"]) for r in rows] == [("Arsenal", "ok"), ("Man United", "ESPN only")]
+    assert rows[0]["_espn"]["id"] == "2" and rows[0]["AvgH"] == "1.4"
+    assert football.odds_from_row(rows[1])["1"] == 2.1 and football.odds_from_row(rows[1])["over2.5"] == 1.8
+    assert len(bad) == 1 and "Unknown Town" in bad[0]["reason"]
+
+
+def test_deportivo_is_never_alaves(monkeypatch, tmp_path):
+    """16 Oct 2026: ESPN 'RC Deportivo' was matched to 'Deportivo Alaves' (Alaves). Now it is a DATA MISMATCH."""
+    from pipeline import teams
+    laliga = ["Alaves", "Levante", "La Coruna", "Celta", "Real Madrid", "Sociedad", "Oviedo"]
+    assert match_name("RC Deportivo", laliga) is None
+    assert match_name("Deportivo", laliga) is None
+    assert match_name("Deportivo Alavés", laliga) == "Alaves"
+    assert match_name("Deportivo La Coruña", laliga) == "La Coruna"
+    events = [_espn_ev(9, "2026-10-16T19:00Z", "RC Deportivo", "Levante", "3572", "1538")]
+    monkeypatch.setattr(football.espn, "_fetch_range", lambda *a, **k: (events, 1, True))
+    reg = teams.Registry(tmp_path / "ids.json", tmp_path / "none.json")
+    games, covered = football.espn_fixtures("SP1", laliga, dt.date(2026, 10, 16), 7, reg)
+    csv_row = {"Div": "SP1", "HomeTeam": "La Coruna", "AwayTeam": "Levante", "_date": dt.date(2026, 10, 16),
+               "_kickoff": "2026-10-16T19:00:00Z"}
+    rows, bad = teams.cross_check([csv_row], games, "LaLiga", covered)
+    assert rows == [] and bad[0]["home"] == "La Coruna" and "RC Deportivo" in bad[0]["reason"]
+    assert all("Alaves" not in (b["home"], b["away"]) for b in bad)
+
+
+def test_team_id_registry_conflict(tmp_path):
+    from pipeline import teams
+    reg = teams.Registry(tmp_path / "ids.json", tmp_path / "none.json")
+    assert reg.resolve("espn", "esp.1", "1", "Deportivo Alavés", ["Alaves", "Levante"]) == "Alaves"
+    reg.save()
+    reg2 = teams.Registry(tmp_path / "ids.json", tmp_path / "none.json")
+    assert reg2.resolve("espn", "esp.1", "1", "Alaves", ["Alaves", "Levante"]) == "Alaves"
+    # the same id now carries the name of another team: not resolved
+    assert reg2.resolve("espn", "esp.1", "1", "Levante UD", ["Alaves", "Levante"]) is None and reg2.conflicts
+    # a second id for a team that already has one: not resolved
+    assert reg2.resolve("espn", "esp.1", "2", "Alavés", ["Alaves", "Levante"]) is None
+
+
+def test_kickoff_difference_is_mismatch():
+    from pipeline import teams
+    g = {"id": "5", "d": "2026-10-18T17:00:00Z", "h": "Arsenal", "a": "Fulham", "rh": "Arsenal", "ra": "Fulham",
+         "_espn": {"slug": "eng.1", "id": "5"}}
+    row = {"HomeTeam": "Arsenal", "AwayTeam": "Fulham", "_kickoff": "2026-10-18T16:30:00Z", "_date": dt.date(2026, 10, 18)}
+    rows, bad = teams.cross_check([row], [g], "PL", {dt.date(2026, 10, 18)})
+    assert rows == [] and "razlika" in bad[0]["reason"]
 
 
 # ---------------- market guard and blend ----------------
@@ -418,7 +510,8 @@ def test_market_guard_flags_and_blends_bodo_case():
     assert home["p"] == pytest.approx(expected, abs=0.01)          # blended
     assert home["unreliable"] is True
     assert all(x.get("unreliable") for x in m["markets"] if x["scope"] in ("match", "dnb", "spread"))
-    assert not any(x.get("unreliable") for x in m["markets"] if x["scope"] == "btts")
+    # one rule for the whole match: BTTS and every other market are unreliable too
+    assert m["unreliable"] and all(x.get("unreliable") for x in m["markets"])
 
 
 def test_unreliable_market_is_not_logged_as_pick():
@@ -520,35 +613,39 @@ def _goalie(name, team, gs, shots, saves, pid):
             "saves": saves, "playerId": pid, "savePct": saves / shots if shots else None}
 
 
-def test_goalie_back_to_back_moves_start_to_backup():
+def test_goalie_quality_and_likely_starter():
     from pipeline import goalies
-    cur = [_goalie("Star One", "COL", 6, 180, 168, 1), _goalie("Back Up", "COL", 1, 30, 25, 2),
+    cur = [_goalie("Star One", "COL", 6, 180, 168, 1), _goalie("Back Up", "COL", 1, 30, 22, 2),
            _goalie("Other A", "DAL", 4, 120, 108, 3), _goalie("Other B", "DAL", 3, 90, 81, 4)]
-    prev = [_goalie("Star One", "COL", 55, 1600, 1480, 1), _goalie("Back Up", "COL", 25, 700, 620, 2)]
+    prev = [_goalie("Star One", "COL", 55, 1600, 1480, 1), _goalie("Back Up", "COL", 25, 700, 600, 2)]
     teams, lg = goalies.ratings(cur, prev)
     col = teams["Colorado Avalanche"]
     assert col[0]["name"] == "Star One" and col[0]["sv"] > col[1]["sv"]
     assert 0.88 < lg < 0.93
-    rested, b2b = goalies.expect(col, False), goalies.expect(col, True)
-    assert rested["name"] == "Star One" and rested["p"] > 0.6
-    assert b2b["name"] == "Back Up" and b2b["b2b"]
-    # backup in goal: the opponent scores more
-    assert goalies.factor(b2b) > 1.0 > goalies.factor(rested) - 0.02
-    assert goalies.factor(b2b) <= 1 + goalies.MAX_EFFECT
+    e = goalies.expect(col, False)
+    assert e["name"] == "Star One" and e["p"] > 0.6
+    # a back-to-back is shown but does not change the start probability (no data for it)
+    e2 = goalies.expect(col, True)
+    assert e2["b2b"] and e2["p"] == e["p"]
+    # no confirmed starter: no change (no data, no guess)
+    assert goalies.factor(e) == pytest.approx(1.0)
+    # a confirmed weaker backup: the opponent scores more, limited to MAX_EFFECT
+    e3 = goalies.expect(col, False, confirmed="Back Up")
+    assert e3["confirmed"] and 1.0 < goalies.factor(e3) <= 1 + goalies.MAX_EFFECT
 
 
 def test_goalie_apply_scales_opponent_goals(monkeypatch):
     from pipeline import goalies
-    cur = [_goalie("Star One", "COL", 6, 180, 168, 1), _goalie("Back Up", "COL", 1, 30, 22, 2),
+    cur = [_goalie("Star One", "COL", 2, 60, 57, 1), _goalie("Back Up", "COL", 5, 150, 125, 2),
            _goalie("Other A", "DAL", 7, 200, 180, 3)]
+    monkeypatch.setattr(goalies, "SHRINK_SHOTS", 50)
     monkeypatch.setattr(goalies, "load", lambda today: (cur, []))
-    hist = [{"home": "Colorado Avalanche", "away": "Utah Mammoth", "hc": 3, "ac": 2, "date": dt.date(2026, 10, 16)}]
     m = {"id": "nhl:1", "sport": "nhl", "home": "Colorado Avalanche", "away": "Dallas Stars",
          "kickoff": "2026-10-17T23:00:00Z", "exp": [3.0, 3.0], "markets": []}
     seen = {}
-    n = goalies.apply([m], dt.date(2026, 10, 17), hist, lambda mm, lh, la: seen.update(lh=lh, la=la))
-    assert n == 1 and m["goalies"]["home"]["b2b"] and m["goalies"]["home"]["name"] == "Back Up"
-    assert seen["la"] > 3.0          # Dallas scores more against the Colorado backup
+    n = goalies.apply([m], dt.date(2026, 10, 17), [], lambda mm, lh, la: seen.update(lh=lh, la=la))
+    # information only: likely starter shown, expectations unchanged
+    assert n == 0 and m["goalies"]["home"]["name"] == "Back Up" and not seen
 
 
 # --------------------------------------------------------------------------
@@ -595,3 +692,121 @@ def test_availability_collect_uses_extra_absences(monkeypatch):
     extra = {"euroleague": {"Real Madrid": [{"name": "A", "status": "out", "chance": 0, "reason": "", "src": "EuroLeague"}]}}
     out, err = availability.collect([m], dt.date(2026, 10, 17), extra)
     assert out["euroleague:1"]["absent"]["home"][0]["name"] == "A" and not err
+
+
+def test_player_events_only_from_fixture_teams():
+    from pipeline import checks
+    m = {"id": "fb:SP1:2026-10-16:La Coruna:Levante", "home": "La Coruna", "away": "Levante"}
+    rows = {"football": [
+        {"name": "Mariano", "team": "Alaves", "next": {"match": m["id"]}, "props": [{"p": 0.7}]},
+        {"name": "Roger Brugue", "team": "Levante", "next": {"match": m["id"]}, "props": [{"p": 0.6}]},
+        {"name": "Lost", "team": "Levante", "next": {"match": "fb:gone"}, "props": [{"p": 0.6}]},
+    ]}
+    bad = checks.player_fixture_violations(rows, [m])
+    assert len(bad) == 2 and any("Mariano" in b for b in bad)
+    assert checks.enforce_player_fixture(rows, [m]) == 2
+    assert checks.player_fixture_violations(rows, [m]) == []
+    assert rows["football"][1]["props"] and rows["football"][0]["props"] is None
+
+
+# ---------------- shrink to market: all sports ----------------
+def _bb_match(ph=112.0, pa=104.0, odds=None):
+    mk = models.basketball_markets(ph, pa, 18.0, 12.0, 216.5, None)
+    return {"id": "nba:1", "sport": "nba", "home": "A", "away": "B", "exp": [ph, pa], "sd": [18.0, 12.0],
+            "markets": mk, "odds_raw": odds or {}}
+
+
+def test_shrink_basketball_to_pinnacle():
+    from pipeline import market
+    odds = {"ml_home": 1.80, "ml_away": 2.10, "total": 216.5, "over": 1.95, "under": 1.87, "ref_src": "pinnacle",
+            "n_books": 12}
+    m = _bb_match(odds=odds)
+    p_model = next(x["p"] for x in m["markets"] if x["scope"] == "match" and x["kind"] == "1")
+    market.apply([m], {"nba": adjust._rebuild_basketball})
+    mkt = market.no_vig({"1": 1.80, "2": 2.10}, ("1", "2"))["1"]
+    home = next(x for x in m["markets"] if x["scope"] == "match" and x["kind"] == "1")
+    assert home["p"] == pytest.approx(0.4 * p_model + 0.6 * mkt, abs=0.005)
+    assert home["p_model"] == pytest.approx(p_model, abs=1e-4)
+    assert m["blend"] == {"w": 0.4, "src": "pinnacle", "thin": False} and m["exp_model"] == [112.0, 104.0]
+    over = next(x for x in m["markets"] if x["scope"] == "total" and x["kind"] == "over" and x["line"] == 216.5)
+    mo = market.no_vig({"o": 1.95, "u": 1.87}, ("o", "u"))["o"]
+    assert over["p"] == pytest.approx(0.4 * over["p_model"] + 0.6 * mo, abs=0.005)
+
+
+def test_shrink_thin_market_uses_more_model_weight():
+    from pipeline import market
+    m = _bb_match(odds={"ml_home": 1.80, "ml_away": 2.10})           # ESPN: one book
+    market.apply([m], {"nba": adjust._rebuild_basketball})
+    assert m["blend"]["thin"] and m["blend"]["w"] == market.W_THIN
+    assert m["market_ref"]["thin"] is True
+
+
+def test_shrink_nhl_refits_goals():
+    from pipeline import market
+    M, mk = sports.nhl_markets(3.4, 2.8, {})
+    m = {"id": "nhl:2", "sport": "nhl", "home": "A", "away": "B", "exp": [3.4, 2.8], "markets": mk,
+         "odds_raw": {"ml_home": 2.0, "ml_away": 1.85, "total": 6.5, "over": 2.0, "under": 1.82,
+                      "ref_src": "pinnacle", "n_books": 9}}
+    p1 = next(x["p"] for x in mk if x["scope"] == "match" and x["kind"] == "1")
+    market.apply([m], {"nhl": adjust._rebuild_nhl})
+    target = 0.4 * p1 + 0.6 * market.no_vig({"1": 2.0, "2": 1.85}, ("1", "2"))["1"]
+    home = next(x for x in m["markets"] if x["scope"] == "match" and x["kind"] == "1")
+    assert home["p"] == pytest.approx(target, abs=0.01) and m["exp"][0] < 3.4
+
+
+def test_rest_effect_measured_from_data():
+    from pipeline import rest
+    # 4 teams, every team plays on consecutive days (short rest) half of the time and scores less then
+    hist, d0 = [], dt.date(2026, 1, 1)
+    teams = ["A", "B", "C", "D"]
+    for i in range(240):
+        d = d0 + dt.timedelta(days=(i // 2) * 1 if i % 4 < 2 else (i // 2) * 1)
+        h, a = teams[i % 4], teams[(i + 1) % 4]
+        hist.append({"home": h, "away": a, "hc": 2, "ac": 2, "date": d0 + dt.timedelta(days=i)})
+    eff = rest.estimate("nhl", hist, lambda h, a: (3.0, 3.0))
+    assert eff and eff["kind"] == "mult" and eff["for"] < 1.0 and eff["n"] >= rest.MIN_GAMES
+    m = {"id": "nhl:9", "sport": "nhl", "home": "A", "away": "C", "exp": [3.0, 3.0],
+         "kickoff": (d0 + dt.timedelta(days=240)).isoformat() + "T23:00:00Z", "markets": []}
+    seen = {}
+    rest.apply([m], "nhl", hist, lambda h, a: (3.0, 3.0), lambda mm, a, b: seen.update(a=a, b=b))
+    assert m.get("context") and "2. tekma v 2 dneh" in m["context"][0] and seen["a"] < 3.0
+    # not enough games: no adjustment, no guess
+    assert rest.estimate("nhl", hist[:20], lambda h, a: (3.0, 3.0)) is None
+
+
+def test_doubtful_or_injured_player_loses_events():
+    m = _fb_match()
+    a = _fb_player("Bukayo Saka", 0.6)
+    b = _fb_player("Declan Rice", 0.1)
+    absent = {"home": [{"name": "Bukayo Saka", "status": "doubt", "chance": 50, "reason": "ankle", "src": "FPL"},
+                       {"name": "Declan Rice", "status": "doubt", "chance": 85, "reason": "", "src": "FPL"}],
+              "away": []}
+    adjust.apply([m], {"football": [a, b]}, {m["id"]: {"absent": absent}})
+    assert a["props"] is None and a["next"]["status"] == "doubt"
+    assert b["props"]                      # "probable" (85 %) keeps his events
+
+
+def test_no_half_rebound_or_assist_lines():
+    assert 0.5 in players._lines(1.2)      # the helper still gives 0.5 ...
+    # ... but nba props never contain 0.5 rebounds / assists
+    box = {"games": {str(i): {"d": f"2026-10-{i + 1:02d}", "p": [["1", "Big Man", "A", "C", 30, 20, 1.2, 1.0, 0]]}
+                     for i in range(8)}}
+    nba = {"matches": [{"id": "nba:1", "home": "A", "away": "B", "kickoff": "2026-10-20T00:00:00Z"}]}
+    row = players.nba_players(nba, box)[0]
+    assert not [p for p in row["props"] if p["stat"] in ("reb", "ast") and p["line"] == 0.5]
+
+
+def test_validation_book_pick_rule_and_scores():
+    from pipeline import validate
+    b = validate.Book(0.4)
+    # model 60 % home, market 50 %: p_final 54 %; bet365 2.0 -> 1.08 > 1: a pick (won)
+    b.add({"1": 0.6, "2": 0.4}, {"1": 0.5, "2": 0.5}, "1", {"1": 2.0, "2": 1.8})
+    # 0.54 x 1.80 = 0.97 and 0.46 x 2.10 = 0.97: no pick
+    b.add({"1": 0.6, "2": 0.4}, {"1": 0.5, "2": 0.5}, "2", {"1": 1.8, "2": 2.1})
+    s = b.summary()
+    assert s["games"] == 2 and s["picks"] == 1 and s["won"] == 1 and s["profit"] == pytest.approx(1.0)
+    assert s["expected"] == pytest.approx(0.54) and s["brier_market"] == pytest.approx(0.5)
+    # no market: p_final = p_model, Brier of the model
+    b2 = validate.Book(0.4)
+    b2.add({"1": 0.7, "2": 0.3}, None, "1", {})
+    assert b2.summary()["brier_final"] == pytest.approx(0.18) and b2.summary()["picks"] == 0

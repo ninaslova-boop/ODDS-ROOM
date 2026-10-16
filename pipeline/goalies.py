@@ -2,14 +2,17 @@
 
 The NHL does not publish the starting goalie before the game. We estimate it:
 * the goalie with most starts this season is the No. 1, the next one the No. 2;
-* normally the No. 1 starts with probability = his share of starts (shrunk to 0.7);
-* on the second night of a back-to-back the No. 1 starts only with B2B_P1.
+* the No. 1 starts with probability = his share of starts this season (shrunk to 0.7).
+  A back-to-back is shown, but it does not change the probability: we have no goalie game logs
+  to measure how often the backup starts then (rest.py measures the team effect of a back-to-back).
 
 Goalie quality = save percentage, current season + PREV_W of the previous season, shrunk to the
 league average with SHRINK_SHOTS shots (save percentage is a noisy statistic).
-The team rating already contains the usual goalie mix of the team, so only the difference
-between the expected goalie today and that usual mix changes the opponent's goals:
-    factor = (1 - sv today) / (1 - sv usual),  limited to [1 - MAX_EFFECT, 1 + MAX_EFFECT].
+The team rating already contains the usual goalie mix of the team, so only a CONFIRMED starter
+can change the opponent's goals:
+    factor = (1 - sv starter) / (1 - sv usual),  limited to [1 - MAX_EFFECT, 1 + MAX_EFFECT].
+The NHL publishes no starter before the game, so today the factor is 1 (no data, no guess) and
+the goalies are shown as information only.
 """
 from __future__ import annotations
 
@@ -23,7 +26,6 @@ log = logging.getLogger("pipeline.goalies")
 
 SHRINK_SHOTS = 2000
 PREV_W = 0.6
-B2B_P1 = 0.35
 P1_PRIOR = 0.7
 MAX_EFFECT = 0.10
 
@@ -77,26 +79,25 @@ def played_yesterday(hist: list[dict], team: str, day: dt.date) -> bool:
     return any(g["date"] == y and team in (g["home"], g["away"]) for g in hist)
 
 
-def expect(goalies: list[dict], b2b: bool) -> dict | None:
-    """Expected save percentage today and the usual one of the team."""
+def expect(goalies: list[dict], b2b: bool, confirmed: str | None = None) -> dict | None:
+    """Likely starter (most starts) and his share of starts; "today" = save percentage expected today.
+    Without a confirmed starter "today" is the usual mix of the team (factor 1)."""
     gs = [g for g in goalies if g["gs"] > 0]
     if not gs:
         return None
     total = sum(g["gs"] for g in gs)
     usual = sum(g["sv"] * g["gs"] for g in gs) / total
     g1 = gs[0]
-    if len(gs) == 1:
-        return {"name": g1["name"], "p": 1.0, "sv": round(g1["sv"], 4), "today": g1["sv"], "usual": usual,
-                "b2b": b2b}
-    share = (g1["gs"] + P1_PRIOR * 10) / (total + 10)
-    p1 = B2B_P1 if b2b else share
-    rest = gs[1:]
-    rest_total = sum(g["gs"] for g in rest)
-    today = p1 * g1["sv"] + (1 - p1) * sum(g["sv"] * g["gs"] for g in rest) / rest_total
-    likely = g1 if p1 >= 0.5 else rest[0]
-    return {"name": likely["name"], "p": round(p1 if likely is g1 else (1 - p1) * rest[0]["gs"] / rest_total, 2),
-            "sv": round(likely["sv"], 4), "today": today, "usual": usual, "b2b": b2b,
-            "alt": rest[0]["name"] if likely is g1 else g1["name"]}
+    share = (g1["gs"] + P1_PRIOR * 10) / (total + 10) if len(gs) > 1 else 1.0
+    out = {"name": g1["name"], "p": round(share, 2), "sv": round(g1["sv"], 4), "today": usual, "usual": usual,
+           "b2b": b2b, "confirmed": False}
+    if len(gs) > 1:
+        out["alt"] = gs[1]["name"]
+    if confirmed:
+        c = next((g for g in gs if g["name"] == confirmed), None)
+        if c:
+            out.update(name=c["name"], p=1.0, sv=round(c["sv"], 4), today=c["sv"], confirmed=True)
+    return out
 
 
 def factor(e: dict) -> float:

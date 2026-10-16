@@ -13,6 +13,7 @@ const S = {
   matchDay: "all", league: "all",
   log: { filter: "all" },
   post: { selected: [], type: "auto" },
+  b365: { day: "today", minP: 0.2, q: "" },
 };
 
 const SPORTS = {
@@ -30,6 +31,76 @@ const pct = (p, d = 0) => (p == null ? "–" : (p * 100).toFixed(d) + "%");
 const odds = (o) => (o ? o.toFixed(2) : "–");
 const fmtNum = (v, d = 2) => (v == null || isNaN(v) ? "–" : Number(v).toFixed(d));
 const fmtLine = (l) => (l == null ? "" : Number(l).toString());
+const STRONG_EV = 1.10;
+
+/* a match that must not give picks or appear in "reliable" lists */
+function isBad(x) { return !!(x.unreliable || x.mismatch || x.markets.some((m) => m.unreliable)); }
+/* p_final with p_model in brackets */
+function pfm(m) { return m.p_model != null && Math.abs(m.p_model - m.p) >= 0.005 ? `${pct(m.p)} (model ${pct(m.p_model)})` : pct(m.p); }
+function isValidated(x) { const v = S.data.validation?.[x.league]; return !!(v && v.validated); }
+function validTag(x) {
+  const v = S.data.validation?.[x.league];
+  if (v && v.validated) return "";
+  return ` <span class="badge grey" data-tip="${v ? `Backtest ima premalo tekem (${v.games}).` : "Za to tekmovanje še ni backtesta."}">ni validirano</span>`;
+}
+
+/* ---------- exact line: probabilities from the model distribution (p_final parameters) ---------- */
+function normCdf(z) {
+  // Abramowitz-Stegun 7.1.26
+  const t = 1 / (1 + 0.3275911 * Math.abs(z) / Math.SQRT2);
+  const y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-z * z / 2);
+  return z >= 0 ? (1 + y) / 2 : (1 - y) / 2;
+}
+function poisPmf(lam, n) { let p = Math.exp(-lam); for (let i = 1; i <= n; i++) p *= lam / i; return p; }
+function scoreMatrix(lh, la, max, rho) {
+  const M = [];
+  for (let i = 0; i <= max; i++) { M.push([]); for (let j = 0; j <= max; j++) {
+    let p = poisPmf(lh, i) * poisPmf(la, j);
+    if (rho) {
+      if (i === 0 && j === 0) p *= 1 - lh * la * rho; else if (i === 0 && j === 1) p *= 1 + lh * rho;
+      else if (i === 1 && j === 0) p *= 1 + la * rho; else if (i === 1 && j === 1) p *= 1 - rho;
+    }
+    M[i].push(p);
+  } }
+  let s = 0; for (const r of M) for (const v of r) s += v;
+  return M.map((r) => r.map((v) => v / s));
+}
+/* p of a market at any line. exp = [a, b] (football/NHL goals, basketball points). */
+function lineProb(x, scope, kind, line, exp) {
+  const [a, b] = exp || x.exp;
+  if (x.sport === "nba" || x.sport === "euroleague") {
+    const sdT = x.sd?.[0] || 18, sdM = x.sd?.[1] || 12, t = a + b, mg = a - b;
+    if (scope === "match") { const p = normCdf(mg / sdM); return kind === "1" ? p : 1 - p; }
+    if (scope === "total") { const po = 1 - normCdf((line - t) / sdT); return kind === "over" ? po : 1 - po; }
+    if (scope === "spread") { const pc = 1 - normCdf((-line - mg) / sdM); return kind === "home" ? pc : 1 - normCdf((-line + mg) / sdM); }
+    return null;
+  }
+  const hockey = x.sport === "nhl";
+  const M = scoreMatrix(a, b, hockey ? 12 : 10, hockey ? 0 : -0.06);
+  let p = 0;
+  for (let i = 0; i < M.length; i++) for (let j = 0; j < M.length; j++) {
+    const v = M[i][j], tot = i + j + (hockey && i === j ? 1 : 0);
+    let ok = false;
+    if (scope === "match") {
+      if (hockey) ok = kind === "1" ? i > j : kind === "2" ? i < j : false;
+      else ok = kind === "1" ? i > j : kind === "2" ? i < j : kind === "X" ? i === j : kind === "1X" ? i >= j : kind === "X2" ? i <= j : i !== j;
+    } else if (scope === "total") ok = kind === "over" ? tot > line : tot < line;
+    else if (scope === "btts") ok = kind === "yes" ? i > 0 && j > 0 : !(i > 0 && j > 0);
+    else if (scope === "spread") ok = kind === "home" ? i - j > -line : j - i > -line;
+    if (hockey && scope === "match" && i === j) { p += v * (kind === "1" ? 0.52 : 0.48); continue; }
+    if (hockey && scope === "spread" && i === j) { p += v * (kind === "home" ? (line > 0 ? 1 : 0) * 0.52 + (line > 0 ? 0.48 : 0) : (line > 0 ? 1 : 0)); continue; }
+    if (ok) p += v;
+  }
+  return p;
+}
+/* settle a market (same rules as pipeline/models.settle). Returns 1, 0 or null (push). */
+function settleMk(sport, scope, kind, line, h, a) {
+  if (scope === "match") { const r = h > a ? "1" : h < a ? "2" : "X"; return kind.includes(r) ? 1 : 0; }
+  if (scope === "total") { const t = h + a; if (t === line) return null; return (kind === "over" ? t > line : t < line) ? 1 : 0; }
+  if (scope === "btts") return ((h > 0 && a > 0) === (kind === "yes")) ? 1 : 0;
+  if (scope === "spread") { const d = kind === "home" ? h - a + line : a - h + line; return d === 0 ? null : d > 0 ? 1 : 0; }
+  return null;
+}
 
 function fmtTime(iso) {
   const d = new Date(iso);
@@ -99,8 +170,12 @@ const PROP_EN = {
 /* ---------- data ---------- */
 async function load() {
   const get = (f) => fetch(`data/${f}`, { cache: "no-cache" }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
-  const [matches, players, picks, meta] = await Promise.all(["matches.json", "players.json", "picks.json", "meta.json"].map(get));
+  const [matches, players, picks, meta, validation, results] = await Promise.all(
+    ["matches.json", "players.json", "picks.json", "meta.json", "validation.json", "results.json"].map(get));
   S.data.matches = matches?.matches || [];
+  S.data.mismatches = matches?.mismatches || [];
+  S.data.validation = validation?.competitions || {};
+  S.data.results = results?.results || {};
   S.data.players = players || {};
   S.data.picks = picks || { picks: [], stats: {} };
   S.data.meta = meta || {};
@@ -197,7 +272,8 @@ function render() {
     v.innerHTML = emptyState();
     return;
   }
-  ({ matches: viewMatches, ranking: viewRanking, value: viewValue, players: viewPlayers, log: viewLog, posts: viewPosts })[S.tab](v);
+  ({ matches: viewMatches, ranking: viewRanking, value: viewValue, b365: viewB365, players: viewPlayers, log: viewLog,
+    backtest: viewBacktest, posts: viewPosts })[S.tab](v);
 }
 
 function emptyState() {
@@ -207,6 +283,17 @@ function emptyState() {
     ${errs ? `<ul style="text-align:left;font-size:12px">${errs}</ul>` : ""}</div>`;
 }
 
+function mismatchList() {
+  const out = (S.data.mismatches || []).filter((m) => S.sport === "all" || m.sport === S.sport)
+    .filter((m) => new Date(m.kickoff).getTime() >= Date.now() - 3 * 3600e3);
+  return out.sort((a, b) => a.kickoff.localeCompare(b.kickoff));
+}
+function mismatchBox() {
+  const list = mismatchList();
+  if (!list.length) return "";
+  return `<details class="warn-box"><summary><b>DATA MISMATCH: ${list.length}</b> · viri se ne ujemajo, te tekme niso v pickih, value seznamih in dogodkih igralcev</summary>
+    ${list.map((m) => `<div style="font-size:13px;margin-top:4px">${fmtTime(m.kickoff)} · ${esc(m.league || "")}: <b>${esc(m.home)} – ${esc(m.away)}</b> <span class="faint">${esc(m.reason)}</span></div>`).join("")}</details>`;
+}
 function sourceWarnings() {
   const st = S.data.meta.status || {};
   const bad = Object.entries(st).filter(([k, v]) => !v.ok && (S.sport === "all" || S.sport === k));
@@ -256,7 +343,7 @@ function viewMatches(v) {
   const groups = {};
   for (const m of list) (groups[dayKey(m.kickoff)] ||= []).push(m);
 
-  v.innerHTML = `${sourceWarnings()}
+  v.innerHTML = `${sourceWarnings()}${mismatchBox()}
     <div class="filters">
       <label>Dan<select id="fDay"><option value="all">Vsi dnevi</option>${days.map((d) => `<option value="${d}" ${S.matchDay === d ? "selected" : ""}>${dayLabel(d)}</option>`).join("")}</select></label>
       <label>Liga<select id="fLeague"><option value="all">Vse lige</option>${leagues.map((l) => `<option ${S.league === l ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></label>
@@ -344,9 +431,10 @@ function resultBar(x) {
     (ref?.[k] != null ? `<br>trg: ${pct(ref[k])}` : "");
   return `<div class="rbar">${segs.map(([c, p, k]) => `<div class="seg ${c}" style="flex:${Math.max(p, 0.04)}" data-tip="${tip(k, p)}"><span>${pct(p)}</span></div>`).join("")}</div>`;
 }
+/* best pick of a match: p_final x bet365 > 1 (reliable matches only) */
 function bestValue(x) {
-  return x.markets.filter((m) => m.edge != null && m.edge >= 0.05 && m.p >= 0.4 && !m.unreliable && !m.odds_assumed)
-    .sort((a, b) => b.edge * b.p - a.edge * a.p)[0];
+  if (isBad(x)) return null;
+  return x.markets.filter((m) => m.b365 && m.p * m.b365 > 1).sort((a, b) => b.p * b.b365 - a.p * a.b365)[0] || null;
 }
 function cardFacts(x) {
   const isBall = x.sport === "nba" || x.sport === "euroleague";
@@ -367,7 +455,9 @@ function cardFacts(x) {
 }
 function statusIcons(x) {
   const out = [];
-  if (x.markets.some((m) => m.unreliable)) out.push(`<span class="ico warn" data-tip="${esc(refText(x))}">⚠</span>`);
+  if (x.mismatch) out.push(`<span class="ico warn" data-tip="${esc("DATA MISMATCH: " + x.mismatch)}">≠</span>`);
+  else if (isBad(x)) out.push(`<span class="ico warn" data-tip="${esc(refText(x))}">⚠</span>`);
+  if (x.context?.length) out.push(`<span class="ico" data-tip="${esc(x.context.join("<br>"))}">⏱</span>`);
   if (x.adj) out.push(`<span class="ico red" data-tip="${esc("Model prilagojen: " + adjText(x))}">±</span>`);
   if (x.availability?.lineup) out.push(`<span class="ico ok" data-tip="Začetni postavi sta objavljeni.">XI</span>`);
   const n = absList(x, "home").length + absList(x, "away").length;
@@ -394,7 +484,7 @@ function matchCard(x) {
     </div>
     ${resultBar(x)}
     <div class="m-facts">${cardFacts(x).map(([l, val]) => `<span><em>${l}</em> <b class="num">${val}</b></span>`).join("")}
-      ${v ? `<span class="m-value" data-tip="Model ${pct(v.p)} · fer ${odds(v.fair)} · kvota ${odds(v.odds)}">VALUE ${esc(slLabel(v, x))} @ ${odds(v.odds)} <b>+${(v.edge * 100).toFixed(0)} %</b></span>` : ""}
+      ${v ? `<span class="m-value" data-tip="p_final ${pfm(v)} · min. kvota ${(1 / v.p).toFixed(2)} · bet365 ${odds(v.b365)}">PICK ${esc(slLabel(v, x))} @ ${odds(v.b365)} <b>${(v.p * v.b365).toFixed(2)}</b>${v.p * v.b365 >= STRONG_EV ? " ◆" : ""}</span>` : ""}
     </div>
     ${S.open.has(x.id) ? matchDetails(x) : ""}
   </article>`;
@@ -503,13 +593,13 @@ function viewRanking(v) {
 /* ---------- view: value ---------- */
 function valueEvents() {
   return allEvents().filter((e) => e.edge != null && e.edge >= S.value.minEdge && e.p >= 0.3 && (S.value.inclAssumed || !e.assumed)
-      && (S.value.showBad || !e.m?.unreliable))
-    .sort((a, b) => (!!a.m?.unreliable - !!b.m?.unreliable) || b.edge - a.edge);
+      && (S.value.showBad || !isBad(e.match)))
+    .sort((a, b) => (isBad(a.match) - isBad(b.match)) || b.edge - a.edge);
 }
 function viewValue(v) {
   const ev = valueEvents();
   v.innerHTML = `<h2>Value: model proti kvoti</h2>
-    <p class="section-note">Prednost = verjetnost × kvota − 1. Pozitivna prednost pomeni, da je kvota višja od fer kvote modela. Kvota z "~" je privzeta (-110), ker vir ni dal cene. Trgi z oznako "model nezanesljiv" (model se od Pinnaclea ali trga razlikuje za več kot 10 o. t.) niso value in se ne beležijo kot picki.</p>
+    <p class="section-note">Prednost = p_final × kvota − 1, kvota = povprečje stavnic (samo za orientacijo; pick velja šele s kvoto bet365, glej zavihek bet365). p_final = model, zmešan s trgom; v oklepaju je čisti model. Kvota z "~" je privzeta (-110). Tekme z oznako "model nezanesljiv" (razlika do trga nad 10 o. t. na glavnem trgu) ali DATA MISMATCH niso na seznamu in nikoli ne dajo picka.</p>
     <div class="filters">
       <label>Min. prednost <span class="g" id="eV">${(S.value.minEdge * 100).toFixed(0)}%</span><input type="range" id="fEdge" min="0" max="0.3" step="0.01" value="${S.value.minEdge}"></label>
       <label class="check"><input type="checkbox" id="fAss" ${S.value.inclAssumed ? "checked" : ""}> privzete kvote</label>
@@ -517,7 +607,7 @@ function viewValue(v) {
     </div>
     <div class="card scroll" style="padding:4px 6px"><table class="tbl stack">
       <tr><th>Dogodek</th><th>Tekma</th><th>Čas</th><th>Model</th><th class="r">Kvota</th><th class="r">Implicirano</th><th class="r">Prednost</th><th></th></tr>
-      ${ev.map((e, i) => `<tr><td>${SPORTS[e.sport]?.icon || ""} ${esc(e.title)}${e.m ? unreliableTag(e.m, e.match) : ""}</td><td class="muted">${esc(e.sub)}</td><td class="muted" style="white-space:nowrap">${fmtTime(e.kickoff)}</td><td>${pbar(e.p)}</td><td class="r num">${odds(e.odds)}${e.assumed ? "~" : ""}</td><td class="r num">${pct(1 / e.odds)}</td><td class="r">${edgeCell(e.edge, e.assumed)}</td><td><button class="btn o s" data-post="${i}">Objava</button></td></tr>`).join("")}
+      ${ev.map((e, i) => `<tr><td>${SPORTS[e.sport]?.icon || ""} ${esc(e.title)}${e.m ? unreliableTag(e.m, e.match) : ""}${validTag(e.match)}</td><td class="muted">${esc(e.sub)}</td><td class="muted" style="white-space:nowrap">${fmtTime(e.kickoff)}</td><td>${pbar(e.p)}${e.m?.p_model != null ? `<div class="faint" style="font-size:11px">model ${pct(e.m.p_model)}</div>` : ""}</td><td class="r num">${odds(e.odds)}${e.assumed ? "~" : ""}</td><td class="r num">${pct(1 / e.odds)}</td><td class="r">${edgeCell(e.edge, e.assumed)}</td><td><button class="btn o s" data-post="${i}">Objava</button></td></tr>`).join("")}
     </table>${!ev.length ? `<div class="empty"><b>Ni value dogodkov</b>Ni kvot ali pa model ne vidi prednosti. "Tiho = malo pickov."</div>` : ""}</div>`;
   $("#fEdge").oninput = (e) => { S.value.minEdge = +e.target.value; $("#eV").textContent = (S.value.minEdge * 100).toFixed(0) + "%"; };
   $("#fEdge").onchange = () => render();
@@ -600,6 +690,226 @@ function viewPlayers(v) {
   });
 }
 
+/* ---------- view: bet365 list ---------- */
+const LS_IN = "oddsroom.b365in", LS_MY = "oddsroom.mypicks";
+function lsGet(k, d) { try { return JSON.parse(localStorage.getItem(k) || "null") ?? d; } catch (e) { return d; } }
+function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } }
+function myPicks() { return lsGet(LS_MY, []); }
+
+function mainLine(x, scope) {
+  const o = x.odds_raw || {};
+  if (scope === "total") {
+    if (x.sport === "football") return 2.5;
+    if (o.total) return o.total;
+    if (x.sport === "nhl") return [5.5, 6.5].sort((a, b) => Math.abs(lineProb(x, "total", "over", a) - 0.5) - Math.abs(lineProb(x, "total", "over", b) - 0.5))[0];
+    return Math.round(x.exp[0] + x.exp[1]) + 0.5;
+  }
+  if (o.spread_home != null) return o.spread_home;
+  let sl = -Math.round((x.exp[0] - x.exp[1]) * 2) / 2;
+  if (sl === Math.trunc(sl)) sl -= 0.5;
+  return sl;
+}
+function b365Specs(x) {
+  if (x.sport === "football") return [["match", "1"], ["match", "X"], ["match", "2"], ["total", "over", 2.5], ["total", "under", 2.5], ["btts", "yes"], ["btts", "no"]];
+  const t = mainLine(x, "total");
+  const out = [["match", "1"], ["match", "2"], ["total", "over", t], ["total", "under", t]];
+  if (x.sport !== "nhl") { const sl = mainLine(x, "spread"); out.push(["spread", "home", sl], ["spread", "away", -sl]); }
+  return out;
+}
+function b365Rows() {
+  const B = S.b365;
+  const now = Date.now();
+  const dayOk = (iso) => B.day === "all" || (B.day === "today" ? dayKey(iso) === todayKey(0) : B.day === "tomorrow" ? dayKey(iso) === todayKey(1) : true);
+  const rows = [];
+  for (const x of S.data.matches) {
+    if ((S.sport !== "all" && x.sport !== S.sport) || new Date(x.kickoff).getTime() < now || !dayOk(x.kickoff) || isBad(x)) continue;
+    if (B.q && !(x.home + " " + x.away + " " + x.league_name).toLowerCase().includes(B.q.toLowerCase())) continue;
+    for (const [scope, kind, line] of b365Specs(x)) {
+      const m = x.markets.find((k) => (k.stat === "goals" || k.stat === "points") && k.scope === scope && k.kind === kind && (line == null || k.line === line));
+      const p = m ? m.p : lineProb(x, scope, kind, line);
+      const pm = m?.p_model ?? (x.exp_model ? lineProb(x, scope, kind, line, x.exp_model) : p);
+      if (p == null || p < B.minP || p > 0.95) continue;
+      const mk = { stat: x.sport === "football" || x.sport === "nhl" ? "goals" : "points", scope, kind, line: line ?? null };
+      rows.push({ key: `${x.id}|${scope}|${kind}`, x, ...mk, label: slLabel(mk, x), p, pm, b365: m?.b365 || null });
+    }
+  }
+  return rows.sort((a, b) => a.x.kickoff.localeCompare(b.x.kickoff) || a.x.id.localeCompare(b.x.id));
+}
+/* p_final / p_model for the line the user entered */
+function rowProb(r, line) {
+  if (r.line == null || line == null || isNaN(line) || line === r.line) return { p: r.p, pm: r.pm };
+  return { p: lineProb(r.x, r.scope, r.kind, line), pm: lineProb(r.x, r.scope, r.kind, line, r.x.exp_model || r.x.exp) };
+}
+function rowResult(r, inp) {
+  const o = parseFloat(String(inp.o ?? "").replace(",", "."));
+  const line = inp.l === "" || inp.l == null ? r.line : parseFloat(String(inp.l).replace(",", "."));
+  const { p, pm } = rowProb(r, line);
+  if (!o || o <= 1) return { p, pm, line, html: `<span class="faint">vnesi kvoto</span>`, ok: false };
+  const ev = p * o, ok = ev > 1;
+  return { p, pm, line, o, ev, ok, strong: ev >= STRONG_EV,
+    html: `<b class="${ok ? "g" : "red"}">${ok ? "PICK" : "NO PICK"}</b>${ev >= STRONG_EV ? ` <span data-tip="p_final × kvota ≥ 1.10">◆</span>` : ""} <span class="num faint">${ev.toFixed(3)}</span>` };
+}
+function viewB365(v) {
+  const B = S.b365;
+  const rows = b365Rows();
+  const inputs = lsGet(LS_IN, {});
+  const logged = new Set(myPicks().map((p) => p.key));
+  const lineCell = (r) => r.line == null ? "" : `<input class="b-in" data-l="${esc(r.key)}" inputmode="decimal" value="${esc(inputs[r.key]?.l ?? "")}" placeholder="${fmtLine(r.line)}" aria-label="bet365 linija">`;
+  v.innerHTML = `<h2>bet365: kaj preveriti</h2>
+    <p class="section-note">bet365 nima javnega API-ja, zato kvote preveriš sam. <b>Min. kvota</b> = 1 / p_final. Pick velja, ko je p_final × kvota bet365 &gt; 1.00 (◆ pri ≥ 1.10). Če ima bet365 drugo linijo, jo vpiši: p se izračuna za točno to linijo iz porazdelitve modela, že zmešane s trgom. Brez nezanesljivih tekem in tekem z DATA MISMATCH. Vnosi in tvoj dnevnik so shranjeni samo v tej napravi.</p>
+    <div class="filters">
+      <label>Dan<select id="bDay">${[["today", "Danes"], ["tomorrow", "Jutri"], ["all", "Vsi"]].map(([k, l]) => `<option value="${k}" ${B.day === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+      <label>Min. p<select id="bMin">${[0.2, 0.35, 0.5].map((k) => `<option value="${k}" ${B.minP === k ? "selected" : ""}>${pct(k)}</option>`).join("")}</select></label>
+      <label>Išči<input id="bQ" value="${esc(B.q)}" placeholder="ekipa, liga…"></label>
+      <span class="spacer"></span><span class="count">${rows.length} vrstic</span>
+    </div>
+    <div class="card scroll" style="padding:4px 6px"><table class="tbl stack b365">
+      <tr><th>Čas</th><th>Tekma</th><th>Trg</th><th class="r">p_final (model)</th><th class="r">Min. kvota</th><th>bet365 kvota</th><th>bet365 linija</th><th>Rezultat</th><th></th></tr>
+      ${rows.map((r) => { const res = rowResult(r, { o: inputs[r.key]?.o ?? r.b365 ?? "", l: inputs[r.key]?.l });
+        return `<tr data-row="${esc(r.key)}"><td class="muted" style="white-space:nowrap">${fmtTime(r.x.kickoff)}</td>
+        <td>${SPORTS[r.x.sport]?.icon || ""} ${esc(r.x.home)} – ${esc(r.x.away)} <span class="faint">${esc(r.x.league_name)}</span>${validTag(r.x)}</td>
+        <td>${esc(r.label)}</td><td class="r num" data-pf>${pct(res.p, 1)} <span class="faint">(${pct(res.pm)})</span></td>
+        <td class="r num" data-min><span class="faint">min.</span> <b>${(1 / res.p).toFixed(2)}</b></td>
+        <td><input class="b-in" data-o="${esc(r.key)}" inputmode="decimal" value="${esc(inputs[r.key]?.o ?? (r.b365 ? r.b365 : ""))}" placeholder="npr. 1.95" aria-label="bet365 kvota">${r.b365 && inputs[r.key]?.o == null ? ` <span class="faint" data-tip="Kvota bet365 iz football-data.co.uk. Preveri, ali še velja.">B365</span>` : ""}</td>
+        <td>${lineCell(r)}</td><td data-res>${res.html}</td>
+        <td><button class="btn s" data-log="${esc(r.key)}" ${res.ok && !logged.has(r.key) ? "" : "disabled"}>${logged.has(r.key) ? "Zabeleženo" : "Zabeleži"}</button></td></tr>`; }).join("")}
+    </table>${!rows.length ? `<div class="empty"><b>Ni vrstic</b>Ni tekem za ta izbor (ali so vse nezanesljive / DATA MISMATCH).</div>` : ""}</div>
+    ${myPicksBlock()}`;
+  const byKey = Object.fromEntries(rows.map((r) => [r.key, r]));
+  const update = (key) => {
+    const r = byKey[key], tr = v.querySelector(`tr[data-row="${CSS.escape(key)}"]`);
+    if (!r || !tr) return;
+    const inp = lsGet(LS_IN, {})[key] || {};
+    const res = rowResult(r, { o: inp.o ?? r.b365 ?? "", l: inp.l });
+    tr.querySelector("[data-pf]").innerHTML = `${pct(res.p, 1)} <span class="faint">(${pct(res.pm)})</span>`;
+    tr.querySelector("[data-min]").innerHTML = `<span class="faint">min.</span> <b>${(1 / res.p).toFixed(2)}</b>`;
+    tr.querySelector("[data-res]").innerHTML = res.html;
+    const btn = tr.querySelector("[data-log]");
+    if (!logged.has(key)) btn.disabled = !res.ok;
+  };
+  v.querySelectorAll("input.b-in").forEach((el) => el.addEventListener("input", () => {
+    const key = el.dataset.o || el.dataset.l;
+    const all = lsGet(LS_IN, {});
+    all[key] = { ...(all[key] || {}), [el.dataset.o ? "o" : "l"]: el.value.trim() };
+    lsSet(LS_IN, all);
+    update(key);
+  }));
+  v.querySelectorAll("[data-log]").forEach((b) => b.onclick = () => {
+    const r = byKey[b.dataset.log];
+    const inp = lsGet(LS_IN, {})[r.key] || {};
+    const res = rowResult(r, { o: inp.o ?? r.b365 ?? "", l: inp.l });
+    if (!res.ok) return;
+    const list = myPicks();
+    if (list.some((p) => p.key === r.key)) return;
+    list.push({ key: r.key, match: r.x.id, sport: r.x.sport, league: r.x.league_name, home: r.x.home, away: r.x.away,
+      kickoff: r.x.kickoff, stat: r.stat, scope: r.scope, kind: r.kind, line: res.line ?? null, label: slLabel({ ...r, line: res.line }, r.x),
+      p_final: +res.p.toFixed(4), p_model: +res.pm.toFixed(4), w: r.x.blend?.w ?? 1, odds: res.o, odds_src: "bet365 (vnos)",
+      ev: +res.ev.toFixed(4), strong: res.strong, logged: new Date().toISOString(), status: "open" });
+    lsSet(LS_MY, list);
+    render();
+  });
+  $("#bDay").onchange = (e) => { B.day = e.target.value; render(); };
+  $("#bMin").onchange = (e) => { B.minP = +e.target.value; render(); };
+  $("#bQ").onchange = (e) => { B.q = e.target.value; render(); };
+  wireMyPicks(v);
+}
+
+/* the user's bet365 picks: settled in the browser with data/results.json */
+function settleMyPicks() {
+  const list = myPicks();
+  let changed = false;
+  for (const p of list) {
+    if (p.status !== "open") continue;
+    const r = S.data.results[p.match];
+    const v = r && (r[p.stat] || r.goals || r.points);
+    if (!v || v[0] == null) continue;
+    const res = settleMk(p.sport, p.scope, p.kind, p.line, v[0], v[1]);
+    p.status = res === 1 ? "won" : res === 0 ? "lost" : "push";
+    p.score = `${v[0]}-${v[1]}`;
+    changed = true;
+  }
+  if (changed) lsSet(LS_MY, list);
+  return list;
+}
+function pickSummary(list) {
+  const d = list.filter((p) => p.status === "won" || p.status === "lost");
+  const won = d.filter((p) => p.status === "won").length;
+  const profit = d.reduce((a, p) => a + (p.status === "won" ? p.odds - 1 : -1), 0);
+  return { n: list.length, open: list.filter((p) => p.status === "open").length, won, lost: d.length - won,
+    hit: d.length ? won / d.length : null, exp: d.length ? d.reduce((a, p) => a + p.p_final, 0) / d.length : null,
+    profit, roi: d.length ? profit / d.length : null };
+}
+function myPicksBlock() {
+  const list = settleMyPicks().slice().sort((a, b) => b.kickoff.localeCompare(a.kickoff));
+  const s = pickSummary(list);
+  const groups = {};
+  for (const p of list) (groups[`${SPORTS[p.sport]?.name || p.sport} · w=${p.w}`] ||= []).push(p);
+  const sb = (st) => ({ won: `<span class="badge">ZADETEK</span>`, lost: `<span class="badge red">ZGREŠEN</span>`, push: `<span class="badge grey">VRAČILO</span>`, open: `<span class="badge amber">ODPRT</span>` }[st] || st);
+  return `<h2 style="margin-top:28px">Moj dnevnik (bet365)</h2>
+    <p class="section-note">Picki, ki si jih zabeležil s kvoto bet365. Poravnajo se sami, ko je rezultat znan. Shranjeni so samo v tej napravi: za varnostno kopijo uporabi Izvozi.</p>
+    <div class="kpis">
+      <div class="kpi"><div class="l">Picki</div><div class="v">${s.n}</div><div class="faint" style="font-size:12px">${s.open} odprtih</div></div>
+      <div class="kpi"><div class="l">Z – P</div><div class="v">${s.won}–${s.lost}</div></div>
+      <div class="kpi"><div class="l">Zadetki</div><div class="v">${pct(s.hit, 1)}</div><div class="faint" style="font-size:12px">pričakovano ${pct(s.exp, 1)}</div></div>
+      <div class="kpi"><div class="l">Profit</div><div class="v ${s.profit > 0 ? "g" : s.profit < 0 ? "red" : ""}">${s.profit > 0 ? "+" : ""}${s.profit.toFixed(2)}u</div><div class="faint" style="font-size:12px">ROI ${s.roi == null ? "–" : (s.roi * 100).toFixed(1) + " %"}</div></div>
+    </div>
+    ${Object.keys(groups).length ? `<div class="card scroll"><h3 style="margin-top:0">Po športu in w</h3><table class="tbl"><tr><th>Skupina</th><th class="r">Picki</th><th class="r">Z–P</th><th class="r">Zadetki</th><th class="r">Pričakovano</th><th class="r">Profit</th></tr>
+      ${Object.entries(groups).map(([g, l]) => { const k = pickSummary(l); return `<tr><td>${esc(g)}</td><td class="r num">${k.n}</td><td class="r num">${k.won}–${k.lost}</td><td class="r num">${pct(k.hit, 1)}</td><td class="r num">${pct(k.exp, 1)}</td><td class="r num">${k.profit.toFixed(2)}u</td></tr>`; }).join("")}</table></div>` : ""}
+    <div class="card scroll" style="padding:4px 6px"><table class="tbl">
+      <tr><th>Čas</th><th>Tekma</th><th>Pick</th><th class="r">p_final (model)</th><th class="r">bet365</th><th class="r">p × kvota</th><th>Status</th><th></th></tr>
+      ${list.map((p, i) => `<tr><td class="muted" style="white-space:nowrap">${fmtTime(p.kickoff)}</td><td>${SPORTS[p.sport]?.icon || ""} ${esc(p.home)} – ${esc(p.away)}</td><td>${esc(p.label)}${p.strong ? " ◆" : ""}</td>
+        <td class="r num">${pct(p.p_final, 1)} <span class="faint">(${pct(p.p_model)})</span></td><td class="r num">${odds(p.odds)}</td><td class="r num">${p.ev.toFixed(3)}</td>
+        <td>${sb(p.status)}${p.score ? ` <span class="faint">${esc(p.score)}</span>` : ""}</td><td><button class="btn o s" data-del="${esc(p.key)}" title="Odstrani">×</button></td></tr>`).join("")}
+    </table>${!list.length ? `<div class="empty">Še ni zabeleženih pickov.</div>` : ""}</div>
+    <div class="row" style="margin-top:8px"><button class="btn o" id="myExport">Izvozi</button><button class="btn o" id="myImport">Uvozi</button><span class="muted small" id="myMsg"></span></div>`;
+}
+function wireMyPicks(v) {
+  v.querySelectorAll("[data-del]").forEach((b) => b.onclick = () => {
+    if (!confirm("Odstranim ta pick iz dnevnika?")) return;
+    lsSet(LS_MY, myPicks().filter((p) => p.key !== b.dataset.del)); render();
+  });
+  const ex = $("#myExport"), im = $("#myImport");
+  if (ex) ex.onclick = () => navigator.clipboard?.writeText(JSON.stringify(myPicks())).then(() => ($("#myMsg").textContent = "Kopirano v odložišče."));
+  if (im) im.onclick = () => {
+    const t = prompt("Prilepi izvožen dnevnik (JSON):");
+    if (!t) return;
+    try {
+      const add = JSON.parse(t);
+      if (!Array.isArray(add)) throw new Error("ni seznam");
+      const have = new Set(myPicks().map((p) => p.key));
+      lsSet(LS_MY, myPicks().concat(add.filter((p) => p && p.key && !have.has(p.key) && p.odds > 1)));
+      render();
+    } catch (e) { $("#myMsg").textContent = "Napaka: " + e.message; }
+  };
+}
+
+/* ---------- view: backtest (data/validation.json) ---------- */
+function viewBacktest(v) {
+  const val = S.data.validation || {};
+  const shown = new Map();
+  for (const x of S.data.matches) if (!shown.has(x.league)) shown.set(x.league, { name: x.league_name, sport: x.sport });
+  const keys = [...new Set([...Object.keys(val), ...shown.keys()])]
+    .filter((k) => S.sport === "all" || (val[k]?.sport || shown.get(k)?.sport) === S.sport || (S.sport === "football" && val[k]?.sport === "football"));
+  const roiTxt = (r) => r == null ? "–" : `${r > 0 ? "+" : ""}${(r * 100).toFixed(1)} %`;
+  const rows = keys.map((k) => {
+    const e = val[k];
+    const nm = e?.name || shown.get(k)?.name || k;
+    if (!e) return `<tr><td>${esc(nm)}</td><td colspan="8"><span class="badge grey">ni validirano</span> <span class="faint">backtest še ni narejen</span></td></tr>`;
+    const b = e.by_w[String(e.prod_w)] || Object.values(e.by_w)[0];
+    const grid = Object.values(e.by_w).map((x) => `w=${x.w}: ${x.picks} pickov, ROI ${roiTxt(x.roi)}, Brier ${fmtNum(x.brier_final, 3)}`).join("<br>");
+    return `<tr><td>${esc(nm)} ${e.validated ? "" : `<span class="badge grey">ni validirano</span>`}<div class="faint" style="font-size:12px">${esc(e.from)} – ${esc(e.to)}</div></td>
+      <td class="r num">${e.games}</td><td class="r num">${fmtNum(b.brier_model, 3)}</td><td class="r num">${fmtNum(b.brier_final, 3)}</td><td class="r num">${fmtNum(b.brier_market, 3)}</td>
+      <td class="r num">${b.picks}</td><td class="r num">${pct(b.hit, 1)} / ${pct(b.expected, 1)}</td><td class="r num" data-tip="${esc(grid)}">${roiTxt(b.roi)}</td>
+      <td class="faint" style="font-size:12px">w=${b.w} · ${esc(e.odds_src)}${e.note ? `<br>${esc(e.note)}` : ""}</td></tr>`;
+  }).join("");
+  v.innerHTML = `<h2>Backtest po tekmovanjih</h2>
+    <p class="section-note">Walk-forward: model se vsakih 14 dni ponovno nauči samo iz preteklih tekem in napove naslednjih 14 dni. p_final = w × model + (1 − w) × trg brez marže (zaključne kvote). Pick = najboljši izid s p_final × kvota &gt; 1. Brier: nižje je bolje (model / p_final / trg). Zadetki: dejansko / pričakovano. ROI pri zaključnih kvotah. Tekmovanje brez backtesta ali z manj kot 150 tekmami je označeno <b>ni validirano</b>. Podrži na ROI za druge w.</p>
+    <div class="card scroll" style="padding:4px 6px"><table class="tbl stack">
+      <tr><th>Tekmovanje</th><th class="r">Tekme</th><th class="r">Brier model</th><th class="r">Brier p_final</th><th class="r">Brier trg</th><th class="r">Picki</th><th class="r">Zadetki / pričak.</th><th class="r">ROI</th><th>Kvote</th></tr>
+      ${rows}
+    </table>${!keys.length ? `<div class="empty">Ni podatkov.</div>` : ""}</div>`;
+}
+
 /* ---------- view: pick log ---------- */
 function viewLog(v) {
   const all = (S.data.picks.picks || []).filter((p) => S.sport === "all" || p.sport === S.sport);
@@ -610,7 +920,7 @@ function viewLog(v) {
     .sort((a, b) => b.kickoff.localeCompare(a.kickoff));
   const statusBadge = (s) => ({ won: `<span class="badge">ZADETEK</span>`, lost: `<span class="badge red">ZGREŠEN</span>`, push: `<span class="badge grey">VRAČILO</span>`, void: `<span class="badge grey">RAZVELJ.</span>`, open: `<span class="badge amber">ODPRT</span>` }[s] || s);
   v.innerHTML = `<h2>Dnevnik pickov</h2>
-    <p class="section-note">Model sam zabeleži en value pick na tekmo (prednost 5–25 %, verjetnost ≥ 40 %, samo prave kvote), preden se tekma začne. Nič se ne briše. Vložek 1 enota na pick.</p>
+    <p class="section-note">Samodejni dnevnik: en pick na tekmo, ko je p_final × kvota bet365 &gt; 1.00 (kvota bet365 iz football-data.co.uk; povprečje stavnic se nikoli ne shrani kot cena). ◆ = p × kvota ≥ 1.10. Nezanesljive tekme in DATA MISMATCH ne dajo picka. Starejši picki (pred 16. 10. 2026) so po starem pravilu. Nič se ne briše. Vložek 1 enota. Svoje picke z vnesenimi kvotami bet365 vodiš v zavihku bet365.</p>
     <div class="kpis">
       <div class="kpi"><div class="l">Picki</div><div class="v">${k.n ?? 0}</div><div class="faint" style="font-size:12px">${k.open ?? 0} odprtih</div></div>
       <div class="kpi"><div class="l">Z – P – V</div><div class="v">${k.won ?? 0}–${k.lost ?? 0}–${k.push ?? 0}</div></div>
@@ -622,14 +932,18 @@ function viewLog(v) {
       <div class="card chart"><h3 style="margin-top:0">Profit skozi čas (enote)</h3>${profitChart(all)}</div>
       <div class="card chart"><h3 style="margin-top:0">Kalibracija modela</h3>${calibChart(st.calibration || [])}
         <div class="faint" style="font-size:12px;margin-top:6px">Točka na diagonali = model je natančen. ${st.tracked_n ? `${st.tracked_n} ocen, Brier ${fmtNum(st.tracked_brier, 3)}.` : "Še ni zaključenih ocen."}</div></div>
+      <div class="card chart"><h3 style="margin-top:0">Kalibracija: samo picki</h3>${calibChart(st.picks_calibration || [])}
+        <div class="faint" style="font-size:12px;margin-top:6px">Picki so izbrani tam, kjer se model najbolj razlikuje od trga. Če so točke pod diagonalo, model tam precenjuje (pristranost izbire).</div></div>
+      ${st.by_w && Object.keys(st.by_w).length ? `<div class="card scroll"><h3 style="margin-top:0">Picki po športu in w</h3><table class="tbl"><tr><th>Šport</th><th>w</th><th class="r">Picki</th><th class="r">Zadetki</th><th class="r">Pričakovano</th><th class="r">Profit</th></tr>
+        ${Object.entries(st.by_w).flatMap(([sp, ws]) => Object.entries(ws).map(([w, k]) => `<tr><td>${SPORTS[sp]?.name || sp}</td><td>${esc(w)}</td><td class="r num">${k.n}</td><td class="r num">${pct(k.hit, 1)}</td><td class="r num">${pct(k.avg_p, 1)}</td><td class="r num">${fmtNum(k.profit, 2)}u</td></tr>`)).join("")}</table></div>` : ""}
     </div>
     ${Object.keys(st.by_sport || {}).length ? `<div class="card scroll"><h3 style="margin-top:0">Po športih</h3><table class="tbl"><tr><th>Šport</th><th class="r">Picki</th><th class="r">Z–P</th><th class="r">Zadetki</th><th class="r">Profit</th><th class="r">ROI</th></tr>
       ${Object.entries(st.by_sport).map(([sp, s]) => `<tr><td>${SPORTS[sp]?.icon || ""} ${SPORTS[sp]?.name || sp}</td><td class="r num">${s.n}</td><td class="r num">${s.won}–${s.lost}</td><td class="r num">${pct(s.hit, 1)}</td><td class="r num">${fmtNum(s.profit, 2)}u</td><td class="r num">${s.roi == null ? "–" : (s.roi * 100).toFixed(1) + "%"}</td></tr>`).join("")}</table></div>` : ""}
     <div class="filters"><label>Prikaži<select id="lF"><option value="all">Vse</option><option value="open" ${S.log.filter === "open" ? "selected" : ""}>Odprte</option><option value="done" ${S.log.filter === "done" ? "selected" : ""}>Zaključene</option></select></label></div>
     <div class="card scroll" style="padding:4px 6px"><table class="tbl">
       <tr><th>Dan</th><th>Tekma</th><th>Pick</th><th class="r">Model</th><th class="r">Kvota</th><th class="r">Prednost</th><th>Status</th></tr>
-      ${list.map((p) => `<tr><td class="muted" style="white-space:nowrap">${p.day}${p.totd ? ` <span class="badge" data-tip="Tip of the Day">TOTD</span>` : ""}</td><td>${SPORTS[p.sport]?.icon || ""} ${esc(p.home)} – ${esc(p.away)}</td>
-        <td>${esc(slLabel(p, p))}</td><td class="r num">${pct(p.p)}</td><td class="r num">${odds(p.odds)}${p.odds_assumed ? "~" : ""}</td><td class="r">${edgeCell(p.edge, p.odds_assumed)}</td><td>${statusBadge(p.status)}${alertBadge(p)}</td></tr>`).join("")}
+      ${list.map((p) => `<tr><td class="muted" style="white-space:nowrap">${p.day}</td><td>${SPORTS[p.sport]?.icon || ""} ${esc(p.home)} – ${esc(p.away)}</td>
+        <td>${esc(slLabel(p, p))}${p.strong ? " ◆" : ""}${p.odds_src ? "" : ` <span class="faint" data-tip="Staro pravilo: povprečna kvota.">staro</span>`}</td><td class="r num">${pct(p.p)}${p.p_model != null ? ` <span class="faint">(${pct(p.p_model)})</span>` : ""}</td><td class="r num">${odds(p.odds)}${p.odds_assumed ? "~" : ""}</td><td class="r">${edgeCell(p.edge, p.odds_assumed)}</td><td>${statusBadge(p.status)}${alertBadge(p)}</td></tr>`).join("")}
     </table>${!list.length ? `<div class="empty"><b>Dnevnik je prazen</b>Picki se zabeležijo samodejno ob naslednjih zagonih.</div>` : ""}</div>`;
   $("#lF").onchange = (e) => { S.log.filter = e.target.value; render(); };
 }
@@ -680,25 +994,14 @@ function calibChart(buckets) {
 function evKey(e) {
   return e.kind === "team" ? `t|${e.match.id}|${e.m.stat}|${e.m.scope}|${e.m.kind}|${e.m.line}` : `p|${e.match.id}|${e.player.name}|${e.prop.label}`;
 }
+/* no pick labels or tiers: one pick format (◆ when p_final x bet365 >= 1.10), a multi-leg format and the trap check */
 const TYPES = {
-  totd: { name: "Tip of the Day", head: "🎯 TIP OF THE DAY" },
-  value: { name: "Value Pick", head: "💎 VALUE PICK" },
-  goals: { name: "Goals Galore", head: "🔥 GOALS GALORE" },
-  lockdown: { name: "Lockdown", head: "🔒 LOCKDOWN" },
-  trap: { name: "Trap + FLIP", head: "🪤 TRAP + FLIP" },
-  bold: { name: "Bold Play", head: "🎲 BOLD PLAY · HIGH RISK" },
+  pick: { name: "Pick", head: "🎯 PICK" },
   acca: { name: "Acca / Builder", head: "🧱 ACCA" },
+  trap: { name: "Trap + FLIP", head: "🪤 TRAP + FLIP" },
 };
 function autoType(e, list) {
-  if (list.length > 1) return "acca";
-  if (e.odds && e.odds >= 3) return "bold";
-  const m = e.m || e.prop;
-  if (e.kind === "team") {
-    if ((m.scope === "btts" && m.kind === "yes") || m.scope === "btts_over" || (m.kind === "over" && ["total", "home", "away"].includes(m.scope))) return "goals";
-    if ((m.scope === "btts" && m.kind === "no") || (m.kind === "under")) return "lockdown";
-  }
-  const totd = (S.data.picks.picks || []).find((p) => p.totd && p.match === e.match.id && p.scope === m.scope && p.kind === m.kind && p.line === m.line);
-  return totd ? "totd" : "value";
+  return list.length > 1 ? "acca" : "pick";
 }
 
 /* short-priced favourites the model does not back */
@@ -777,11 +1080,13 @@ function buildPost(list, type, trap) {
   }
   const e = list[0];
   const x = e.match;
-  const price = e.odds ? `Odds: ${odds(e.odds)} · Book implies ${pct(1 / e.odds)}` : `Fair price: ${odds(1 / e.p)} (check your book)`;
-  const verdict = e.odds ? (e.edge >= 0.03 ? " → VALUE" : e.edge < 0 ? " → SKIP at this price" : " → thin") : "";
-  return `${t.head}\n${SPORTS[x.sport].en} ${x.home} v ${x.away}\n🏆 ${x.league_name} · ${when(x.kickoff)}\n\n` +
-    `Pick: ${evEn(e)}\n${price}\nEst. %: ${pct(e.p)}${verdict}\n\nThe read:\n${whyLines(e).map((l) => "• " + l).join("\n")}\n` +
-    (type === "bold" ? "\nHigher odds, higher risk. Eyes open. Small stakes only.\n" : "") + foot;
+  const b365 = e.m?.b365;
+  const ev = b365 ? e.p * b365 : null;
+  const head = ev != null && ev >= STRONG_EV ? `${t.head} ◆` : t.head;
+  const price = b365 ? `bet365: ${odds(b365)} · p × odds ${ev.toFixed(2)}${ev > 1 ? "" : " → no pick at this price"}`
+    : `Min. odds: ${(1 / e.p).toFixed(2)} (check bet365)`;
+  return `${head}\n${SPORTS[x.sport].en} ${x.home} v ${x.away}\n🏆 ${x.league_name} · ${when(x.kickoff)}\n\n` +
+    `Pick: ${evEn(e)}\n${price}\nEst. %: ${pct(e.p)}\n\nThe read:\n${whyLines(e).map((l) => "• " + l).join("\n")}\n` + foot;
 }
 
 function buildAlertPost(p) {
@@ -803,7 +1108,7 @@ function viewPosts(v) {
   const vals = valueEvents().slice(0, 40);
   const strong = events.filter((e) => e.p >= 0.6 && e.p <= 0.88).sort((a, b) => b.p - a.p).slice(0, 40);
   const tr = traps().slice(0, 15);
-  const type = S.post.trapIdx != null ? "trap" : (S.post.type === "auto" ? (sel[0] ? autoType(sel[0], sel) : "value") : S.post.type);
+  const type = S.post.trapIdx != null ? "trap" : (S.post.type === "auto" || !TYPES[S.post.type] ? (sel[0] ? autoType(sel[0], sel) : "pick") : S.post.type);
   const alerts = (S.data.picks.picks || []).filter((p) => p.alert && p.status === "open");
   let text = S.post.trapIdx != null && tr[S.post.trapIdx] ? buildPost([], "trap", tr[S.post.trapIdx]) : (sel.length ? buildPost(sel, type) : "");
   if (S.post.alertIdx != null && alerts[S.post.alertIdx]) text = buildAlertPost(alerts[S.post.alertIdx]);
@@ -811,11 +1116,11 @@ function viewPosts(v) {
     <div style="flex:1"><div>${SPORTS[e.sport]?.icon || ""} ${esc(e.title)}</div><div class="faint" style="font-size:12px">${esc(e.sub)} · ${fmtTime(e.kickoff)}</div></div>
     <div class="r num"><b class="g">${pct(e.p)}</b>${e.odds ? `<div class="faint" style="font-size:12px">@ ${odds(e.odds)}</div>` : ""}</div></div>`; };
   v.innerHTML = `<h2>Generator objav</h2>
-    <p class="section-note">Izberi en dogodek (ali več za Acca / Builder). Tip objave se izbere sam, lahko ga spremeniš. Besedilo je v angleščini, v slogu kanala.</p>
+    <p class="section-note">Izberi en dogodek (ali več za Acca / Builder). Brez oznak in stopenj: samo Pick, ◆ pri p_final × bet365 ≥ 1.10. Besedilo je v angleščini.</p>
     <div class="grid2">
       <div>
-        <h3>Value dogodki</h3><div class="pick-list">${vals.map(item).join("") || `<div class="empty" style="padding:16px">Ni value dogodkov.</div>`}</div>
-        <h3>Močni dogodki (60–88 %)</h3><div class="pick-list">${strong.map(item).join("")}</div>
+        <h3>Kandidati (zanesljive tekme)</h3><div class="pick-list">${vals.map(item).join("") || `<div class="empty" style="padding:16px">Ni kandidatov.</div>`}</div>
+        <h3>Verjetni dogodki (60–88 %)</h3><div class="pick-list">${strong.map(item).join("")}</div>
         ${alerts.length ? `<h3>Lineup alerti</h3><div class="pick-list">${alerts.map((p, i) => `<div class="pick-item ${S.post.alertIdx === i ? "on" : ""}" data-alert="${i}"><div style="flex:1"><div>${p.alert.level === "red" ? "🟥" : "🟨"} ${esc(slLabel(p, p))} @ ${odds(p.odds)}</div><div class="faint" style="font-size:12px">${esc(p.home)} – ${esc(p.away)} · ${esc(p.alert.text)}</div></div></div>`).join("")}</div>` : ""}
         <h3>Trap radar <span class="badge red">+ FLIP</span></h3>
         <div class="pick-list">${tr.map((t, i) => `<div class="pick-item ${S.post.trapIdx === i ? "on" : ""}" data-trap="${i}"><div style="flex:1"><div>${esc(slLabel(t.m, t.x))} @ ${odds(t.m.odds)}</div><div class="faint" style="font-size:12px">${esc(t.x.home)} – ${esc(t.x.away)} · kvota pravi ${pct(t.implied)}, model ${pct(t.m.p)}</div></div></div>`).join("") || `<div class="empty" style="padding:16px">Ni pasti: kratke kvote se ujemajo z modelom.</div>`}</div>
@@ -860,58 +1165,84 @@ function claudeExport(day, sport, withPlayers, allMatches) {
   const dayTxt = day === "all2" ? `${dayLabel(todayKey(0))} in ${dayLabel(todayKey(1)).toLowerCase()}` : dayLabel(day);
   L.push(`# The Odds Room – podatki za analizo (${dayTxt}, ${sport === "all" ? "vsi športi" : SPORTS[sport]?.name})`);
   L.push(`Generirano: ${new Date(S.data.meta.generated || Date.now()).toLocaleString("sl-SI")}`);
+  // data coverage per competition in this export: injuries and backtest
+  const comps = new Map();
+  for (const x of ms) if (!comps.has(x.league)) comps.set(x.league, x);
+  const inj = S.data.meta.injury_sources || {};
+  const injKey = (x) => x.sport === "football" ? x.league : x.sport;
+  const noInj = [...comps.values()].filter((x) => !(inj[injKey(x)] || []).length).map((x) => x.league_name);
+  const notVal = [...comps.values()].filter((x) => !isValidated(x)).map((x) => x.league_name);
+  L.push(`Podatki o poškodbah: ${[...comps.values()].filter((x) => (inj[injKey(x)] || []).length).map((x) => `${x.league_name} (${inj[injKey(x)].join(", ")})`).join(", ") || "–"}`);
+  if (noInj.length) L.push(`injury data: none → ${noInj.join(", ")}`);
+  if (notVal.length) L.push(`NOT VALIDATED (backtest manjka ali premalo tekem): ${notVal.join(", ")}`);
   L.push("");
   L.push("## Navodilo");
-  L.push("Si analitik športnih stav. Spodaj so ocene modela The Odds Room in kvote. Za vsak odprt pick in vsak value kandidat:");
-  L.push("1. oceni, ali je prednost realna ali verjetno napaka modela (primerjaj model s trgom brez marže; razlika nad 10 o. t. je sumljiva),");
-  L.push("2. preveri novice, postave in motivacijo, ki jih model ne vidi,");
-  L.push("3. predlagaj: igraj / manjši vložek / preskoči, z enim stavkom razloga.");
-  L.push("Na koncu izberi največ 3 najboljše picke dneva in 1 past (kratka kvota, ki je model ne podpira). Bodi kritičen; brez garancij.");
-  L.push("Pojmi: p = verjetnost modela, fer = 1/p, kvota = povprečje stavnic (ali ESPN), prednost = p × kvota − 1, trg = kvote brez marže.");
+  L.push("Si analitik športnih stav. Spodaj so ocene modela The Odds Room. Pravilo picka: p_final × kvota bet365 > 1.00 (◆ = ≥ 1.10). Brez drugih oznak.");
+  L.push("p_final = w × model + (1 − w) × trg brez marže (Pinnacle ali povprečje stavnic; tanek trg < 4 stavnice: w = 0.6). V oklepaju je čisti model.");
+  L.push("Za vsak pick in kandidata: 1) ali je razlika do trga realna, 2) novice, postave, motivacija, ki jih model ne vidi, 3) igraj / manjši vložek / preskoči z enim stavkom.");
+  L.push("Tekme NEZANESLJIVO in DATA MISMATCH niso za stave. Tekmovanja NOT VALIDATED jemlji previdno. Bodi kritičen; brez garancij.");
   L.push("");
-  const st = S.data.picks.stats?.all || {};
-  L.push("## Stanje modela (dnevnik)");
-  L.push(`Picki: ${st.n ?? 0} (odprtih ${st.open ?? 0}) · Z–P–V ${st.won ?? 0}–${st.lost ?? 0}–${st.push ?? 0} · zadetki ${pct(st.hit, 1)} (model je čakal ${pct(st.avg_p, 1)}) · profit ${fmtNum(st.profit ?? 0, 2)}u · ROI ${st.roi == null ? "–" : (st.roi * 100).toFixed(1) + " %"} · Brier ${fmtNum(st.brier, 3)}`);
-  const bys = S.data.picks.stats?.by_sport || {};
-  if (Object.keys(bys).length) L.push("Po športih: " + Object.entries(bys).map(([k, v]) => `${SPORTS[k]?.name || k} ${v.won}–${v.lost}, ${fmtNum(v.profit, 2)}u`).join(" · "));
-  const cal = S.data.picks.stats?.calibration || [];
-  if (cal.length) L.push("Kalibracija (napovedano → dejansko): " + cal.filter((b) => b.n >= 5).map((b) => `${pct(b.pred)}→${pct(b.act)} (n${b.n})`).join(", "));
-  L.push("Varovalka: trgi, kjer se model od trga razlikuje za več kot 10 o. t., so označeni NEZANESLJIVO in se ne beležijo kot picki.");
+  const st = S.data.picks.stats || {};
+  const a = st.all || {};
+  L.push("## Stanje modela (samodejni dnevnik)");
+  L.push(`Picki: ${a.n ?? 0} (odprtih ${a.open ?? 0}) · Z–P–V ${a.won ?? 0}–${a.lost ?? 0}–${a.push ?? 0} · zadetki ${pct(a.hit, 1)} (pričakovano ${pct(a.avg_p, 1)}) · profit ${fmtNum(a.profit ?? 0, 2)}u · ROI ${a.roi == null ? "–" : (a.roi * 100).toFixed(1) + " %"}`);
+  if (st.by_w) L.push("Po športu in w (zadetki / pričakovano, profit): " + Object.entries(st.by_w).flatMap(([sp, ws]) => Object.entries(ws).map(([w, k]) => `${SPORTS[sp]?.name || sp} ${w}: ${pct(k.hit, 1)}/${pct(k.avg_p, 1)}, ${fmtNum(k.profit, 2)}u (n${k.n})`)).join(" · "));
+  const cal = st.calibration || [];
+  if (cal.length) L.push("Kalibracija vseh ocen (napovedano → dejansko): " + cal.filter((b) => b.n >= 5).map((b) => `${pct(b.pred)}→${pct(b.act)} (n${b.n})`).join(", "));
+  const pc = st.picks_calibration || [];
+  if (pc.length) L.push("Kalibracija samo pickov: " + pc.map((b) => `${pct(b.pred)}→${pct(b.act)} (n${b.n})`).join(", "));
+  const mine = settleMyPicks();
+  if (mine.length) { const k = pickSummary(mine); L.push(`Moji bet365 picki: ${k.n} (odprtih ${k.open}) · ${k.won}–${k.lost} · zadetki ${pct(k.hit, 1)} (pričakovano ${pct(k.exp, 1)}) · ${k.profit.toFixed(2)}u`); }
   L.push("");
 
   const picks = (S.data.picks.picks || []).filter((p) => p.status === "open" && inDay(p.kickoff) && spOk(p.sport));
-  L.push(`## Odprti picki (${picks.length})`);
-  if (picks.length) {
-    L.push("| čas | šport | liga | tekma | pick | p | kvota | implic. | prednost | p zdaj | opozorilo |");
-    L.push("|---|---|---|---|---|---|---|---|---|---|---|");
+  const myOpen = mine.filter((p) => p.status === "open" && inDay(p.kickoff) && spOk(p.sport));
+  L.push(`## Odprti picki (${picks.length + myOpen.length})`);
+  if (picks.length || myOpen.length) {
+    L.push("| čas | tekma | pick | p_final (model) | kvota | vir | p × kvota | p zdaj | opozorilo |");
+    L.push("|---|---|---|---|---|---|---|---|---|");
     for (const p of picks.sort((a, b) => a.kickoff.localeCompare(b.kickoff))) {
-      L.push(`| ${hm(p.kickoff)} | ${SPORTS[p.sport]?.name || p.sport} | ${p.league || ""} | ${p.home} – ${p.away} | ${slLabel(p, p)}${p.totd ? " (TOTD)" : ""} | ${pct(p.p)} | ${odds(p.odds)} | ${pct(1 / p.odds)} | ${(p.edge * 100).toFixed(1)} % | ${p.p_now != null ? pct(p.p_now) : "–"} | ${p.alert ? (p.alert.level === "red" ? "RDEČE: " : "RUMENO: ") + p.alert.text : ""} |`);
+      const evv = p.p * p.odds;
+      L.push(`| ${hm(p.kickoff)} | ${p.home} – ${p.away} (${p.league || ""}) | ${slLabel(p, p)}${evv >= STRONG_EV ? " ◆" : ""} | ${pct(p.p)}${p.p_model != null ? ` (${pct(p.p_model)})` : ""} | ${odds(p.odds)} | ${p.odds_src || "povprečje (staro pravilo)"} | ${evv.toFixed(3)} | ${p.p_now != null ? pct(p.p_now) : "–"} | ${p.alert ? (p.alert.level === "red" ? "RDEČE: " : "RUMENO: ") + p.alert.text : ""} |`);
     }
+    for (const p of myOpen) L.push(`| ${hm(p.kickoff)} | ${p.home} – ${p.away} (${p.league || ""}) | ${p.label}${p.strong ? " ◆" : ""} | ${pct(p.p_final)} (${pct(p.p_model)}) | ${odds(p.odds)} | bet365 (moj vnos) | ${p.ev.toFixed(3)} | – | |`);
   } else L.push("Ni odprtih pickov.");
   L.push("");
 
-  const vals = [];
-  for (const x of ms) for (const m of x.markets) {
-    if (m.edge != null && m.edge >= 0.03 && m.p >= 0.35 && !m.odds_assumed) vals.push({ x, m });
+  // to check on bet365: reliable matches, p_final x average price > 1
+  const cand = [];
+  for (const x of ms) {
+    if (isBad(x)) continue;
+    for (const m of x.markets) {
+      const price = m.b365 || m.odds;
+      if (!price || m.odds_assumed || m.p < 0.3 || m.p * price <= 1) continue;
+      cand.push({ x, m, price, ev: m.p * price });
+    }
   }
-  vals.sort((a, b) => (a.m.unreliable - b.m.unreliable) || b.m.edge - a.m.edge);
-  const okVals = vals.filter((v) => !v.m.unreliable).slice(0, 30);
-  L.push(`## Value kandidati (prednost ≥ 3 %, zanesljivi; ${okVals.length})`);
-  if (okVals.length) {
-    L.push("| čas | tekma | trg | p | fer | kvota | prednost | trg brez marže |");
-    L.push("|---|---|---|---|---|---|---|---|");
-    for (const { x, m } of okVals) L.push(`| ${hm(x.kickoff)} | ${x.home} – ${x.away} (${x.league_name}) | ${slLabel(m, x)} | ${pct(m.p)} | ${odds(m.fair)} | ${odds(m.odds)} | +${(m.edge * 100).toFixed(1)} % | ${refFor(x, m)} |`);
-  } else L.push("Ni zanesljivih value kandidatov.");
+  cand.sort((a, b) => b.ev - a.ev);
+  L.push(`## Za preveriti na bet365 (zanesljive tekme, p_final × kvota > 1; ${Math.min(30, cand.length)})`);
+  if (cand.length) {
+    L.push("| čas | tekma | trg | p_final (model) | min. kvota | kvota | vir kvote | p × kvota | trg brez marže |");
+    L.push("|---|---|---|---|---|---|---|---|---|");
+    for (const { x, m, price, ev } of cand.slice(0, 30)) L.push(`| ${hm(x.kickoff)} | ${x.home} – ${x.away} (${x.league_name})${isValidated(x) ? "" : " [not validated]"} | ${slLabel(m, x)} | ${pfm(m)} | ${(1 / m.p).toFixed(2)} | ${odds(price)} | ${m.b365 ? "bet365" : "povprečje – preveri bet365"} | ${ev.toFixed(3)}${ev >= STRONG_EV ? " ◆" : ""} | ${refFor(x, m)} |`);
+  } else L.push("Ni kandidatov.");
   L.push("");
-  const bad = ms.filter((x) => x.market_ref && x.markets.some((m) => m.unreliable))
-    .sort((a, b) => Math.max(b.market_ref.gap_1x2 || 0, b.market_ref.gap_ou || 0) - Math.max(a.market_ref.gap_1x2 || 0, a.market_ref.gap_ou || 0)).slice(0, 25);
-  L.push(`## Model nezanesljiv (razlika do trga > 10 o. t.; ${bad.length})`);
-  for (const x of bad) L.push(`- ${hm(x.kickoff)} ${x.home} – ${x.away} (${x.league_name}): ${refShort(x)}`);
+
+  const mm = (S.data.mismatches || []).filter((m) => inDay(m.kickoff) && spOk(m.sport));
+  L.push(`## DATA MISMATCH (viri se ne ujemajo; ${mm.length})`);
+  for (const m of mm) L.push(`- ${hm(m.kickoff)} ${m.league || ""}: ${m.home} – ${m.away} · ${m.reason}`);
+  if (!mm.length) L.push("Ni neujemanj.");
+  L.push("");
+
+  const bad = ms.filter((x) => isBad(x) && !x.mismatch)
+    .sort((a, b) => Math.max(b.market_ref?.gap_1x2 || 0, b.market_ref?.gap_ou || 0) - Math.max(a.market_ref?.gap_1x2 || 0, a.market_ref?.gap_ou || 0)).slice(0, 25);
+  L.push(`## NEZANESLJIVO (razlika do trga > 10 o. t. na glavnem trgu → cela tekma; ${bad.length})`);
+  for (const x of bad) L.push(`- ${hm(x.kickoff)} ${x.home} – ${x.away} (${x.league_name}): ${x.market_ref ? refShort(x) : ""}`);
   if (!bad.length) L.push("Ni takih tekem.");
   L.push("");
 
-  const show = allMatches ? ms : ms.filter((x) => bestValue(x) || x.availability || x.adj || picks.some((p) => p.match === x.id) || x.markets.some((m) => m.unreliable));
-  L.push(`## Tekme (${show.length}${allMatches ? "" : ` od ${ms.length}: s pickom, value, novico ali opozorilom`})`);
+  const show = allMatches ? ms : ms.filter((x) => bestValue(x) || x.availability || x.adj || x.context?.length || picks.some((p) => p.match === x.id) || isBad(x));
+  L.push(`## Tekme (${show.length}${allMatches ? "" : ` od ${ms.length}: s pickom, novico, prilagoditvijo ali opozorilom`})`);
   for (const x of show.slice(0, 80)) L.push(matchLine(x, hm));
   if (show.length > 80) L.push(`… in še ${show.length - 80} tekem.`);
   L.push("");
@@ -922,13 +1253,19 @@ function claudeExport(day, sport, withPlayers, allMatches) {
       if (!Array.isArray(list) || !spOk(sp)) continue;
       for (const pl of list) {
         const x = pl.next && S.data.byId[pl.next.match];
-        if (!x || !inDay(x.kickoff) || !pl.props) continue;
-        for (const pr of pl.props) if (pr.p >= 0.55 && pr.p <= 0.85) pp.push({ pl, pr, x });
+        if (!x || !inDay(x.kickoff) || !pl.props || isBad(x)) continue;
+        if (pl.next.status === "out" || pl.next.status === "doubt") continue;
+        if (![x.home, x.away, ...Object.values(x.domestic || {}).map((d) => d?.[1])].includes(pl.team)) continue;
+        for (const pr of pl.props) {
+          if (pr.p < 0.55 || pr.p > 0.85) continue;
+          if ((pr.stat === "reb" || pr.stat === "ast") && pr.line === 0.5) continue;
+          pp.push({ pl, pr, x });
+        }
       }
     }
     pp.sort((a, b) => b.pr.p - a.pr.p);
-    L.push(`## Igralci: verjetni dogodki 55–85 % (top ${Math.min(25, pp.length)})`);
-    for (const { pl, pr, x } of pp.slice(0, 25)) L.push(`- ${pl.name} (${pl.team}, ${pl.next.home ? "doma" : "v gosteh"} vs ${pl.next.opp}, ${hm(x.kickoff)}): ${pr.label} ${pct(pr.p)}, fer ${odds(1 / pr.p)}${pl.next.status && pl.next.status !== "ok" ? ` [${pl.next.status}]` : ""}`);
+    L.push(`## Igralci: dogodki 55–85 % (top ${Math.min(25, pp.length)}; brez poškodovanih, kaznovanih in vprašljivih)`);
+    for (const { pl, pr, x } of pp.slice(0, 25)) L.push(`- ${pl.name} (${pl.team}, ${pl.next.home ? "doma" : "v gosteh"} vs ${pl.next.opp}, ${hm(x.kickoff)}): ${pr.label} ${pct(pr.p)}, min. kvota ${(1 / pr.p).toFixed(2)}${(inj[injKey(x)] || []).length ? "" : " [injury data: none]"}`);
     if (!pp.length) L.push("Ni podatkov o igralcih za ta dan.");
   }
   return L.join("\n");
@@ -950,25 +1287,28 @@ function refShort(x) {
 }
 function matchLine(x, hm) {
   const h = mkt(x, "match", "1"), d = mkt(x, "match", "X"), a = mkt(x, "match", "2");
-  const parts = [`${hm(x.kickoff)} ${SPORTS[x.sport]?.name}/${x.league_name}: ${x.home} – ${x.away}`];
-  parts.push(`pričak. ${fmtNum(x.exp[0], x.sport === "football" || x.sport === "nhl" ? 2 : 1)}–${fmtNum(x.exp[1], x.sport === "football" || x.sport === "nhl" ? 2 : 1)}`);
-  if (h && a) parts.push(`1X2 ${pct(h.p)}/${d && x.sport === "football" ? pct(d.p) + "/" : ""}${pct(a.p)}`);
+  const parts = [`${hm(x.kickoff)} ${SPORTS[x.sport]?.name}/${x.league_name}${isValidated(x) ? "" : " [not validated]"}: ${x.home} – ${x.away}`];
+  const dg = x.sport === "football" || x.sport === "nhl" ? 2 : 1;
+  parts.push(`pričak. ${fmtNum(x.exp[0], dg)}–${fmtNum(x.exp[1], dg)}${x.exp_model ? ` (model ${fmtNum(x.exp_model[0], dg)}–${fmtNum(x.exp_model[1], dg)}, w=${x.blend?.w}${x.blend?.thin ? " tanek trg" : ""})` : ""}`);
+  if (h && a) parts.push(`p_final ${pct(h.p)}/${d && x.sport === "football" ? pct(d.p) + "/" : ""}${pct(a.p)}${h.p_model != null ? ` (model ${pct(h.p_model)}/${d && x.sport === "football" ? pct(d.p_model) + "/" : ""}${pct(a.p_model)})` : ""}`);
   if (x.market_ref) parts.push(`trg ${refShort(x)}`);
   if (x.sport === "football") {
     const o = mkt(x, "total", "over", 2.5), b = mkt(x, "btts", "yes");
-    if (o) parts.push(`O2.5 ${pct(o.p)}`);
-    if (b) parts.push(`BTTS ${pct(b.p)}`);
+    if (o) parts.push(`O2.5 ${pfm(o)}`);
+    if (b) parts.push(`BTTS ${pfm(b)}`);
   }
   const f = (side) => (x.form?.[side] || []).map((g) => g.r).join("");
   if (x.form?.home?.length) parts.push(`forma ${f("home")} / ${f("away")}`);
   const abs = ["home", "away"].map((s) => absList(x, s).filter((q) => q.status === "out").map((q) => q.name).slice(0, 4));
   if (abs[0].length || abs[1].length) parts.push(`manjkajo: ${abs[0].join(", ") || "–"} | ${abs[1].join(", ") || "–"}`);
   if (x.availability?.lineup) parts.push("postavi potrjeni");
-  if (x.goalies) parts.push(`vratarja (ocena): ${["home", "away"].map((s) => { const g = x.goalies[s]; return g ? `${g.name} ${(g.sv * 100).toFixed(1)} % p${Math.round(g.p * 100)}${g.b2b ? " B2B" : ""}` : "–"; }).join(" | ")}`);
-  if (x.adj) parts.push(`prilagojeno: ${adjText(x)}`);
+  if (x.goalies) parts.push(`vratarja (ocena, ni potrjeno): ${["home", "away"].map((s) => { const g = x.goalies[s]; return g ? `${g.name} ${(g.sv * 100).toFixed(1)} %${g.b2b ? " B2B" : ""}` : "–"; }).join(" | ")}`);
+  if (x.adj) parts.push(`prilagoditev (odsotnosti): ${adjText(x)}`);
+  for (const c of x.context || []) parts.push(`prilagoditev (počitek): ${c}`);
   const v = bestValue(x);
-  if (v) parts.push(`VALUE: ${slLabel(v, x)} @ ${odds(v.odds)} (p ${pct(v.p)}, +${(v.edge * 100).toFixed(1)} %)`);
-  if (x.markets.some((m) => m.unreliable)) parts.push("NEZANESLJIVO");
+  if (v) parts.push(`PICK: ${slLabel(v, x)} @ bet365 ${odds(v.b365)} (p ${pfm(v)}, p×kvota ${(v.p * v.b365).toFixed(3)}${v.p * v.b365 >= STRONG_EV ? " ◆" : ""})`);
+  if (x.mismatch) parts.push(`DATA MISMATCH: ${x.mismatch}`);
+  else if (isBad(x)) parts.push("NEZANESLJIVO");
   return "- " + parts.join(" · ");
 }
 function todayKey(offset) {

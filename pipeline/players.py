@@ -386,6 +386,8 @@ def nba_players(nba: dict, box: dict) -> list[dict]:
                      ("pra", "T+S+P", (pts * f + reb + ast), max(math.sqrt(sd(5) ** 2 + sd(6) ** 2 + sd(7) ** 2), 5.0)))
             for stat, unit, mu, s in specs:
                 for L in _lines(mu):
+                    if L == 0.5 and stat in ("reb", "ast"):
+                        continue            # bookmakers rarely offer 0.5 rebounds / assists
                     props.append(prop(f"Več kot {L:g} {unit}", 1 - models.norm_cdf((L - mu) / s), stat, L))
             if tpm >= 0.8:
                 for k in (1, 2, 3, 4):

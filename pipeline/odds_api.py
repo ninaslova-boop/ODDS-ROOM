@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import os
 
+from . import models
 from .util import CACHE_DIR, http_get, match_name, now_utc, parse_iso, read_json, write_json
 
 log = logging.getLogger("pipeline.odds_api")
@@ -62,20 +63,20 @@ def apply(matches: list[dict]) -> list[str]:
             errors.append(f"The Odds API {sport}: {e}")
             continue
         for ev in events:
-            t = parse_iso(ev["commence_time"])
-            near = [m for m in pool if abs((parse_iso(m["kickoff"]) - t).total_seconds()) < 4 * 3600]
-            if not near:
+            m = find_match(ev, pool)
+            if m is None:
                 continue
-            h = match_name(ev["home_team"], [m["home"] for m in near])
-            if not h:
+            if m.get("mismatch"):
                 continue
-            m = next(x for x in near if x["home"] == h)
             h2h: dict[str, list] = {}
             totals: dict[tuple[str, float], list] = {}
             pin: dict[str, float] = {}
             pin_tot: dict[tuple[str, float], float] = {}
+            b365: dict = {}
             for b in ev.get("bookmakers", []):
                 is_pin = b.get("key") == "pinnacle"
+                if b.get("key") == "bet365":
+                    b365 = bet365_prices(b, ev)
                 for mk in b.get("markets", []):
                     for o in mk.get("outcomes", []):
                         if mk["key"] == "h2h":
@@ -109,9 +110,52 @@ def apply(matches: list[dict]) -> list[str]:
                         mk.pop("odds_assumed", None)
             raw = m.setdefault("odds_raw", {})
             raw["source"] = "the-odds-api"
+            raw["n_books"] = len(ev.get("bookmakers", []))
+            if b365:
+                raw["b365"] = b365
+                models.attach_b365(m["markets"], b365)
+            if m["sport"] == "football" and not raw.get("1") and prices["1"] and prices["2"] and prices["X"]:
+                raw.update({k: v for k, v in prices.items()})
+                for side in ("over", "under"):
+                    v = _avg(totals.get((side, 2.5), []))
+                    if v:
+                        raw[f"{side}2.5"] = v
             if m["sport"] in ("nhl", "nba", "euroleague"):
                 us_reference(raw, ev, h2h, totals, pin, pin_tot)
     return errors
+
+
+KICKOFF_TOL_MIN = 15
+
+
+def bet365_prices(b: dict, ev: dict) -> dict:
+    """bet365 prices of one Odds API event, in the models.attach_b365 format."""
+    out: dict = {"tot": []}
+    for mk in b.get("markets", []):
+        for o in mk.get("outcomes", []):
+            if mk["key"] == "h2h":
+                side = "1" if o["name"] == ev["home_team"] else ("2" if o["name"] == ev["away_team"] else "X")
+                out[side] = o.get("price")
+            elif mk["key"] == "totals" and o.get("point") is not None:
+                out["tot"].append([o["name"].lower(), float(o["point"]), o.get("price")])
+    return out
+
+
+def find_match(ev: dict, pool: list[dict]) -> dict | None:
+    """The match of an Odds API event: kickoff within KICKOFF_TOL_MIN and both teams the same.
+    When only one team agrees at that time, the match gets a "mismatch" note (two sources disagree)."""
+    t = parse_iso(ev["commence_time"])
+    near = [m for m in pool if abs((parse_iso(m["kickoff"]) - t).total_seconds()) <= KICKOFF_TOL_MIN * 60]
+    for m in near:
+        if match_name(ev["home_team"], [m["home"]]) and match_name(ev["away_team"], [m["away"]]):
+            return m
+    for m in near:
+        h_ok = bool(match_name(ev["home_team"], [m["home"]]))
+        a_ok = bool(match_name(ev["away_team"], [m["away"]]))
+        if h_ok != a_ok:
+            m["mismatch"] = f"The Odds API ob tem času: {ev['home_team']} – {ev['away_team']}"
+            return m
+    return None
 
 
 def us_reference(raw: dict, ev: dict, h2h: dict, totals: dict, pin: dict, pin_tot: dict):
