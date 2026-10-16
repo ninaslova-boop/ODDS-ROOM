@@ -479,6 +479,25 @@ def test_api_football_falls_back_to_rapidapi(monkeypatch):
     assert any("rapidapi" in c for c in calls)
 
 
+def test_api_football_key_cleanup_and_error_hides_key(monkeypatch):
+    assert availability.clean_key(' "x-apisports-key: 0123abcd" ') == "0123abcd"
+    assert availability.clean_key("0123abcd\n") == "0123abcd"
+
+    def fake(url, params=None, headers=None, **kw):
+        if "api-sports.io" in url:
+            return {"errors": {"token": "Error/Missing application key."}, "response": []}
+        raise RuntimeError("403 Client Error: Forbidden")
+    monkeypatch.setenv("API_FOOTBALL_KEY", "secretkey123")
+    monkeypatch.setattr(availability, "cached_get", fake)
+    try:
+        availability.api_football_injuries([dt.date(2026, 10, 18)])
+        raise AssertionError("must fail")
+    except RuntimeError as e:
+        msg = str(e)
+    assert "api-sports" in msg and "RapidAPI" in msg and "12 znakov" in msg
+    assert "secretkey123" not in msg
+
+
 def test_odds_api_us_reference_for_guard():
     from pipeline import odds_api
     raw = {}
