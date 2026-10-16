@@ -29,7 +29,9 @@ def person_name(raw: str | None) -> str | None:
     if "," in raw:
         last, first = [x.strip() for x in raw.split(",", 1)]
         raw = f"{first} {last}"
-    return " ".join(w.capitalize() if w.isupper() or w.islower() else w for w in raw.split())
+    def cap(w: str) -> str:
+        return "-".join(x.capitalize() for x in w.split("-")) if w.isupper() or w.islower() else w
+    return " ".join(cap(w) for w in raw.split())
 
 
 def parse_stats(j: dict) -> list[list]:
@@ -87,6 +89,8 @@ def update_boxes(games: dict[str, dict], max_new: int = 400) -> dict:
 def players(el: dict, box: dict, season_start: dt.date) -> list[dict]:
     """Player rows like the NBA ones; only players who played in the current season."""
     rows = nba_players(el, box)
+    for r in rows:   # names cached before the hyphen fix
+        r["name"] = " ".join("-".join(x[:1].upper() + x[1:] for x in w.split("-")) for w in r["name"].split())
     return [r for r in rows if r["last_date"] >= season_start.isoformat()]
 
 

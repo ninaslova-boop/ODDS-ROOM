@@ -565,6 +565,7 @@ def _el_stats():
 def test_euroleague_box_parse():
     from pipeline import euroleague_players as elp
     assert elp.person_name("ABALDE, ALBERTO") == "Alberto Abalde"
+    assert elp.person_name("WILLIAMS-GOSS, NIGEL") == "Nigel Williams-Goss"
     lines = elp.parse_stats(_el_stats())
     assert len(lines) == 2                       # the player with 0 seconds did not play
     assert lines[0][1] == "Alberto Abalde" and lines[0][2] == "Real Madrid" and lines[0][4] == 25.0
