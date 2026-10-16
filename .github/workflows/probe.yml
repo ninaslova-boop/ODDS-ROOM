@@ -1,0 +1,13 @@
+name: Probe sources
+on:
+  push:
+    branches: ["claude/**"]
+    paths: ["tools/probe.py", ".github/workflows/probe.yml"]
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install requests
+      - run: python tools/probe.py
