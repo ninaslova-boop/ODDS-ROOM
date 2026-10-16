@@ -73,6 +73,15 @@
 - Every competition without a backtest (or with fewer than 150 games) shows "not validated" in the app and the export.
 - Test: `test_validation_book_pick_rule_and_scores`.
 
+### Follow-up (same day, after the first production run)
+- Bug: bet365 goal prices (over / under 2.5) were attached to the cards / corners totals 2.5, so 36 card picks were
+  logged with a wrong price. Fixed (`models.attach_b365` only for result and goal / point totals); those picks are
+  voided with the reason (`picks.repair`), nothing is deleted. Test: `test_bet365_goal_prices_never_on_cards_or_corners`.
+- The Odds API names ("Omonoia FC", "Los Angeles Clippers", EuroLeague club names) made false DATA MISMATCHes. Now a
+  one-team name match at the same kickoff is accepted unless the other name is another club we know.
+- "Hertha" is no longer a generic word; alias "Celta Fortuna" = "Celta B".
+- Validation needs market prices: NHL, NBA, EuroLeague and UEFA have no price history, so they stay "not validated".
+
 ### 9. Export format
 - No pick labels; ◆ only. New sections: DATA MISMATCH, "to check on bet365", NEZANESLJIVO (whole match).
 - p_final everywhere, p_model in brackets. Calibration of all estimates and of logged picks only, report by w,

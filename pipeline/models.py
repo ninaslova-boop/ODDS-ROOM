@@ -389,6 +389,8 @@ def attach_b365(markets: list[dict], b365: dict | None):
         return
     tot = {(s, float(l)): p for s, l, p in b365.get("tot", [])}
     for m in markets:
+        if m.get("stat") not in ("goals", "points") or m["scope"] not in ("match", "total"):
+            continue            # bet365 prices are for the result and the goal / point total only
         price = None
         if m["scope"] == "match" and m["kind"] in ("1", "X", "2"):
             price = b365.get(m["kind"])

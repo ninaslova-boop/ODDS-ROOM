@@ -135,7 +135,7 @@ ALIASES = {
     "erzurum bb": "erzurumspor", "amed sfk": "amedspor", "istanbul basaksehir": "buyuksehyr",
     "basaksehir": "buyuksehyr", "goztepe": "goztep", "fatih karagumruk": "karagumruk",
     "real sociedad b": "sociedad b", "celta vigo b": "celta b", "racing santander": "santander",
-    "sporting gijon": "sp gijon", "deportivo la coruna": "la coruna",
+    "sporting gijon": "sp gijon", "deportivo la coruna": "la coruna", "celta fortuna": "celta b",
 }
 
 
@@ -155,7 +155,7 @@ def norm_name(s: str) -> str:
 GENERIC = {"deportivo", "real", "sporting", "athletic", "atletico", "racing", "union", "united", "city", "town",
            "olympique", "dynamo", "dinamo", "lokomotiv", "spartak", "red", "star", "young", "boys", "inter", "fc",
            "sport", "sports", "club", "cd", "cf", "rc", "sc", "ac", "as", "us", "ud", "sd", "b", "ii", "san", "st",
-           "saint", "santa", "borussia", "eintracht", "hertha", "academica", "unione", "vitoria", "nacional",
+           "saint", "santa", "borussia", "eintracht", "academica", "unione", "vitoria", "nacional",
            "rapid", "slavia", "sparta", "zenit", "wanderers", "rovers", "albion", "county", "hotspur", "palace",
            "villa", "forest", "argyle", "orient"}
 FUZZY_MARGIN = 0.06

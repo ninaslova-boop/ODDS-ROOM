@@ -27,7 +27,7 @@ log = logging.getLogger("pipeline.validate")
 OUT = ROOT / "data" / "validation.json"
 STEP = 14
 W_GRID = (0.4, 0.6, 0.2, 1.0)
-MIN_GAMES_VALID = 150
+MIN_GAMES_VALID = 150     # games, and games with market prices
 
 
 class Book:
@@ -90,7 +90,8 @@ def _entry(name: str, sport: str, books: dict[float, Book], start: dt.date, end:
     n = books[prod_w].n
     return {"name": name, "sport": sport, "from": start.isoformat(), "to": end.isoformat(), "games": n,
             "prod_w": prod_w, "odds_src": odds_src, "market_src": market_src,
-            "validated": n >= MIN_GAMES_VALID, "by_w": res}
+            # the pick rule can only be validated with prices: games without a market do not count
+            "validated": n >= MIN_GAMES_VALID and books[prod_w].n_mkt >= MIN_GAMES_VALID, "by_w": res}
 
 
 def checkpoints(start: dt.date, end: dt.date) -> list[dt.date]:

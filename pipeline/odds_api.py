@@ -142,19 +142,26 @@ def bet365_prices(b: dict, ev: dict) -> dict:
 
 
 def find_match(ev: dict, pool: list[dict]) -> dict | None:
-    """The match of an Odds API event: kickoff within KICKOFF_TOL_MIN and both teams the same.
-    When only one team agrees at that time, the match gets a "mismatch" note (two sources disagree)."""
+    """The match of an Odds API event: kickoff within KICKOFF_TOL_MIN and the same teams.
+    The Odds API often writes names in another way ("Omonoia FC", "Los Angeles Clippers"). So when one team
+    matches by name, the other one is accepted if its name is not the name of ANOTHER team we know.
+    When it is (e.g. "Deportivo La Coruna" where we have "Alaves"), the match gets a "mismatch" note."""
     t = parse_iso(ev["commence_time"])
     near = [m for m in pool if abs((parse_iso(m["kickoff"]) - t).total_seconds()) <= KICKOFF_TOL_MIN * 60]
     for m in near:
         if match_name(ev["home_team"], [m["home"]]) and match_name(ev["away_team"], [m["away"]]):
             return m
+    known = sorted({x[s] for x in pool for s in ("home", "away")})
     for m in near:
         h_ok = bool(match_name(ev["home_team"], [m["home"]]))
         a_ok = bool(match_name(ev["away_team"], [m["away"]]))
-        if h_ok != a_ok:
+        if h_ok == a_ok:
+            continue
+        other_name, ours = (ev["away_team"], m["away"]) if h_ok else (ev["home_team"], m["home"])
+        hit = match_name(other_name, known)
+        if hit and hit != ours:
             m["mismatch"] = f"The Odds API ob tem času: {ev['home_team']} – {ev['away_team']}"
-            return m
+        return m
     return None
 
 
