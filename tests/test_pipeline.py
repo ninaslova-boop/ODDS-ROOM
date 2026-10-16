@@ -461,3 +461,30 @@ def test_nhl_guard_against_espn_moneyline():
     assert home["p"] > 0.6 and m["market_ref"]["gap_1x2"] > market.GUARD_PP
     assert home.get("unreliable") and st["flagged"] == 1
     assert all(x.get("unreliable") for x in m["markets"] if x["scope"] == "spread")
+
+
+def test_api_football_falls_back_to_rapidapi(monkeypatch):
+    calls = []
+
+    def fake(url, params=None, headers=None, **kw):
+        calls.append(url)
+        if "api-sports.io" in url:
+            return {"errors": {"token": "Error/Missing application key."}, "response": []}
+        return {"errors": [], "response": [{"player": {"name": "Pedri", "type": "Missing Fixture", "reason": "Knee"},
+                                             "team": {"name": "Barcelona"}}]}
+    monkeypatch.setenv("API_FOOTBALL_KEY", "abc")
+    monkeypatch.setattr(availability, "cached_get", fake)
+    out = availability.api_football_injuries([dt.date(2026, 10, 18)])
+    assert out[0]["name"] == "Pedri" and out[0]["status"] == "out"
+    assert any("rapidapi" in c for c in calls)
+
+
+def test_odds_api_us_reference_for_guard():
+    from pipeline import odds_api
+    raw = {}
+    ev = {"home_team": "Winnipeg Jets", "away_team": "Minnesota Wild"}
+    h2h = {"Winnipeg Jets": [1.9, 1.95], "Minnesota Wild": [1.95, 1.9]}
+    totals = {("over", 6.5): [1.9, 1.95, 1.92], ("under", 6.5): [1.9, 1.88, 1.92], ("over", 5.5): [1.5]}
+    odds_api.us_reference(raw, ev, h2h, totals, {"1": 1.93, "2": 1.97}, {("over", 6.5): 1.94, ("under", 6.5): 1.9})
+    assert raw["ml_home"] == 1.93 and raw["ref_src"] == "pinnacle"
+    assert raw["total"] == 6.5 and raw["over"] == 1.94

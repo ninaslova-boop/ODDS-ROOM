@@ -155,7 +155,7 @@ def apply(matches: list[dict], rebuild) -> dict:
 # --------------------------------------------------------------------------
 # NHL / NBA: the same guard against ESPN prices without margin (no Pinnacle there)
 # --------------------------------------------------------------------------
-US_SPORTS = ("nhl", "nba")
+US_SPORTS = ("nhl", "nba", "euroleague")
 
 
 def guard_us(m: dict) -> bool:
@@ -171,7 +171,7 @@ def guard_us(m: dict) -> bool:
         return next((k["p"] for k in m["markets"] if k["scope"] == scope and k["kind"] == kind
                      and (ln is None or k.get("line") == ln)), None)
 
-    info = {"src": "espn", "p": {}, "model": {}, "gap_1x2": None, "gap_ou": None}
+    info = {"src": o.get("ref_src", "espn"), "p": {}, "model": {}, "gap_1x2": None, "gap_ou": None}
     flag_ml = flag_ou = False
     if ml and mp("match", "1") is not None and mp("match", "2") is not None:
         p1, p2 = mp("match", "1"), mp("match", "2")
