@@ -1,5 +1,41 @@
 # Changelog
 
+## 2026-10-16 – follow-up review
+
+1. **One-team rule does not reopen the Deportivo bug.** The Odds API event with only one matching team at the
+   same kickoff is accepted only when the other name is a spelling variant of OUR team (`util.name_variant`: a
+   shared distinctive word, or nearly the same word; generic words like "Deportivo" never count). An unknown or
+   other club = DATA MISMATCH. Tests: `test_one_team_rule_never_reopens_deportivo` (RC Deportivo / Deportivo /
+   Deportivo A Coruña / Unknown Town – Levante against Alaves – Levante → mismatch; Omonoia, Saski Baskonia,
+   Beşiktaş J.K., KK Crvena zvezda, Olimpia Milano, FC Copenhagen → match), `test_deportivo_is_never_alaves`.
+2. **Voided card picks were never in the totals.** 34 card picks were logged on 16 Oct and voided before any
+   result (the first run report said 36: two of those were goal picks). None was settled, so none was in
+   38–29 / 56.7 %. Corrected totals (shadow log): 94 picks without voids (89 old rule + 5 new), 38–29, hit 56.7 %
+   (expected 61.9 %), +1.03u, ROI +1.5 %, 34 void. `n` no longer counts void picks; a separate `void` count.
+   Automatic picks only for publishable markets: 1X2 / moneyline (1, X, 2), the goal or point total, spreads,
+   BTTS only with its own bet365 price; never cards, corners, team totals or double chance (`picks.publishable`).
+   Test: `test_voided_picks_never_counted_and_only_publishable_markets`.
+3. **Official record = the user's bet365 picks.** The app saves them to `data/user_picks.json` with a GitHub
+   commit (button "Shrani na GitHub", fine-grained token of the user, stored only on the device; automatic after
+   "Zabeleži" when a token is set). The pipeline settles them and publishes `app/data/user_picks.json`
+   (`pipeline/user_picks.py`, never writes the repository file). Picks only on the device show
+   "NI VARNOSTNO SHRANJENO" with the days since the last save / export. The automatic picks are the
+   "model shadow log". Test: `test_user_picks_are_settled_from_the_repo_file`.
+4. **Injuries for football: "injury data: none" stays.** API-Football is off (free plan: no current season;
+   only with `API_FOOTBALL_INJURIES=1`). ESPN has football injury endpoints, but they are empty for Ligue 1,
+   LaLiga and even the Premier League (checked 16 Oct 2026). No other free current-season source was found.
+   Premier League keeps FPL; lineups (~1 h before kick-off) are used for all leagues.
+5. **Price history.** `pipeline/price_history.py` saves the no-vig price (Pinnacle, else average of books, else
+   ESPN) for NHL, NBA, EuroLeague and UEFA cups: a "daily" and a "close" (≤ 3 h before kickoff) snapshot per
+   match, in `data/price_history/` (committed after every run that adds one). The Odds API is read once a day
+   and once more ≤ 2.5 h before a kickoff, only on days with matches (about 350 of 500 free credits per month).
+   `validate.py` uses these prices once a competition has 150+ finished games with them.
+   Test: `test_price_history_snapshots_and_close_fetch`.
+6. **EuroLeague props need 5 games this season.** Below that: "too few games (n/5)", no probability (the averages
+   are still shown). Test: `test_euroleague_props_need_five_games`.
+7. **w per sport in the export header** (`w (utež modela): nogomet 0.4, NHL 0.4, NBA 0.4, Euroliga 0.4; tanek trg
+   0.6`, from `meta.market_w`). Test: `test_export_header_prints_w_per_sport`.
+
 ## 2026-10-16 – EuroLeague player and team stats from the official API
 - Source: `https://api-live.euroleague.net/v2` (the API of euroleaguebasketball.net), competition `E`, current
   season only (`E2026` = 2026-27). Season game list + one box score per played game.

@@ -135,7 +135,8 @@ ALIASES = {
     "erzurum bb": "erzurumspor", "amed sfk": "amedspor", "istanbul basaksehir": "buyuksehyr",
     "basaksehir": "buyuksehyr", "goztepe": "goztep", "fatih karagumruk": "karagumruk",
     "real sociedad b": "sociedad b", "celta vigo b": "celta b", "racing santander": "santander",
-    "sporting gijon": "sp gijon", "deportivo la coruna": "la coruna", "celta fortuna": "celta b",
+    "sporting gijon": "sp gijon", "deportivo la coruna": "la coruna", "celta fortuna": "celta b", "fc copenhagen": "kobenhavn", "copenhagen": "kobenhavn",
+    "f c kobenhavn": "kobenhavn", "fc kobenhavn": "kobenhavn",
     # US team names
     "los angeles clippers": "la clippers", "la lakers": "los angeles lakers",
 }
@@ -165,6 +166,19 @@ FUZZY_MARGIN = 0.06
 
 def _distinct(n: str) -> bool:
     return any(t not in GENERIC for t in n.split())
+
+
+def name_variant(a: str, b: str) -> bool:
+    """True when two names can be the same club written in another way: they share a distinctive word
+    ("Saski Baskonia" / "Kosner Baskonia") or two distinctive words are nearly the same ("Omonoia" / "Omonia").
+    Generic words ("Deportivo", "Real", "FC") never count."""
+    ta = [t for t in norm_name(a).split() if t not in GENERIC and len(t) >= 4]
+    tb = [t for t in norm_name(b).split() if t not in GENERIC and len(t) >= 4]
+    for x in ta:
+        for y in tb:
+            if x == y or (len(x) >= 5 and len(y) >= 5 and difflib.SequenceMatcher(None, x, y).ratio() >= 0.8):
+                return True
+    return False
 
 
 def match_name(name: str, candidates: list[str], cutoff: float = 0.72) -> str | None:

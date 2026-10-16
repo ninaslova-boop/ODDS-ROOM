@@ -40,7 +40,7 @@ BOX = CACHE_DIR / "euroleague_box_v2.json"
 KEEP_DAYS = 3
 MIN_REGULAR = 15.0
 CHANCE_2 = 30
-MIN_GAMES_PROPS = 3
+MIN_GAMES_PROPS = 5        # fewer games this season: "too few games", no probability
 MIN_MINUTES_PROPS = 12.0
 WORKERS = 6
 STATS = ("pts", "reb", "ast", "tpm", "pra")
@@ -259,13 +259,17 @@ def players(el: dict, box: dict) -> list[dict]:
         row = {"name": last[1], "team": last[2], "pos": last[3], "gp": len(lines), **season,
                "l5": {k: l5[k] for k in ("min", *STATS)}, "last_date": rows[-1][0], "src": "EuroLeague API"}
         m = match_by_team.get(row["team"])
-        if m and len(lines) >= MIN_GAMES_PROPS and season["min"] >= MIN_MINUTES_PROPS:
+        if m and season["min"] >= MIN_MINUTES_PROPS:
             home = m["home"] == row["team"]
             opp = m["away"] if home else m["home"]
             f = (model.mu + model.dfn.get(opp, 0)) / model.mu if model else 1.0
-            row["next"] = {"match": m["id"], "opp": opp, "home": home, "kickoff": m["kickoff"],
-                           "proj_pts": round((season["pts"] + l5["pts"]) / 2 * f, 1)}
-            row["props"] = props_for(season, l5, lines, f)
+            row["next"] = {"match": m["id"], "opp": opp, "home": home, "kickoff": m["kickoff"]}
+            if len(lines) >= MIN_GAMES_PROPS:
+                row["next"]["proj_pts"] = round((season["pts"] + l5["pts"]) / 2 * f, 1)
+                row["props"] = props_for(season, l5, lines, f)
+            else:
+                row["props"] = None
+                row["props_note"] = f"too few games ({len(lines)}/{MIN_GAMES_PROPS})"
         out.append(row)
     out.sort(key=lambda r: -r["pts"])
     return out

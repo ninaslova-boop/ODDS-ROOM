@@ -20,7 +20,7 @@ import datetime as dt
 import logging
 import math
 
-from . import espn, football, market, models, soccer_espn, sports
+from . import espn, football, market, models, price_history, soccer_espn, sports
 from .util import CACHE_DIR, ROOT, RUN, iso, now_utc, read_json, setup_logging, to_float, write_json
 
 log = logging.getLogger("pipeline.validate")
@@ -78,6 +78,12 @@ class Book:
             "strong_picks": len(strong),
             "strong_roi": round(sum((x[1] - 1) if x[2] else -1 for x in strong) / len(strong), 4) if strong else None,
         }
+
+
+def history(sport: str, done_ids: set[str], league: str | None = None) -> dict[str, dict]:
+    """Recorded closing prices (price_history.py) of finished games, used only with MIN_GAMES of them."""
+    h = {k: v for k, v in price_history.load(sport, league).items() if k in done_ids}
+    return h if len(h) >= price_history.MIN_GAMES else {}
 
 
 def _result(hg: float, ag: float) -> str:
@@ -170,6 +176,7 @@ def _us(sport: str, league: str, today: dt.date) -> dict | None:
     if len(hist) < 200:
         return None
     odds = {g["id"]: g.get("odds") or {} for g in games.values()}
+    ph = history(sport, {f"{sport}:{g['id']}" for g in hist})
     w0 = market.W[sport]
     w_thin = market.W_THIN
     books = {w: Book(w) for w in sorted({w_thin, *W_GRID})}
@@ -198,9 +205,18 @@ def _us(sport: str, league: str, today: dt.date) -> dict | None:
                 p1 = models.norm_cdf((ph - pa) / r.sd_margin)
             o = odds.get(g["id"]) or {}
             mk = market.no_vig({"1": o.get("ml_home"), "2": o.get("ml_away")}, ("1", "2"))
+            prices = {"1": o.get("ml_home"), "2": o.get("ml_away")}
+            snap = ph.get(f"{sport}:{g['id']}")
+            if snap:
+                mk, prices = {"1": snap["p"]["1"], "2": snap["p"]["2"]}, snap["prices"]
             win = "1" if g["hc"] > g["ac"] else "2"
             for b in books.values():
-                b.add({"1": p1, "2": 1 - p1}, mk, win, {"1": o.get("ml_home"), "2": o.get("ml_away")})
+                b.add({"1": p1, "2": 1 - p1}, mk, win, prices)
+    if ph:
+        ent = _entry(sport.upper(), sport, books, start, today, "zgodovina cen (Pinnacle / povprečje)",
+                     "shranjene zaključne cene brez marže", w0)
+        ent["note"] = f"Kvote iz data/price_history ({len(ph)} tekem)."
+        return ent
     ent = _entry(sport.upper(), sport, books, start, today, "ESPN (ne bet365)", "ESPN brez marže (1 stavnica)", w_thin)
     ent["note"] = "Trg ESPN je ena stavnica (tanek trg), zato produkcija uporablja w = 0.6."
     return ent
@@ -222,7 +238,8 @@ def euroleague(today: dt.date) -> dict | None:
     hist = sorted(sports._history(games), key=lambda g: g["date"])
     if len(hist) < 100:
         return None
-    books = {1.0: Book(1.0)}
+    ph = history("euroleague", {f"euroleague:{g['id']}" for g in hist})
+    books = {w: Book(w) for w in W_GRID} if ph else {1.0: Book(1.0)}
     start = hist[0]["date"] + dt.timedelta(days=60)
     for t in checkpoints(start, today):
         train = [dict(g, w=1.0 if g["date"] >= sports._season_start(t) else 0.5) for g in hist if g["date"] < t]
@@ -235,9 +252,17 @@ def euroleague(today: dt.date) -> dict | None:
                 continue
             ph, pa = r.expected(g["home"], g["away"])
             p1 = models.norm_cdf((ph - pa) / r.sd_margin)
-            books[1.0].add({"1": p1, "2": 1 - p1}, None, "1" if g["hc"] > g["ac"] else "2", {})
+            snap = ph.get(f"euroleague:{g['id']}")
+            mk, prices = ({"1": snap["p"]["1"], "2": snap["p"]["2"]}, snap["prices"]) if snap else (None, {})
+            for b in books.values():
+                b.add({"1": p1, "2": 1 - p1}, mk, "1" if g["hc"] > g["ac"] else "2", prices)
+    if ph:
+        ent = _entry("EuroLeague", "euroleague", books, start, today, "zgodovina cen (Pinnacle / povprečje)",
+                     "shranjene zaključne cene brez marže", market.W["euroleague"])
+        ent["note"] = f"Kvote iz data/price_history ({len(ph)} tekem)."
+        return ent
     ent = _entry("EuroLeague", "euroleague", books, start, today, "ni kvot", "ni kvot", 1.0)
-    ent["note"] = "Za Evroligo ni zgodovinskih kvot: samo Brier modela, brez ROI."
+    ent["note"] = "Za Evroligo še ni zgodovinskih kvot (zbiranje teče od 16. 10. 2026): samo Brier modela, brez ROI."
     return ent
 
 
@@ -260,6 +285,7 @@ def uefa(today: dt.date) -> dict:
     _, dom_hists, _ = soccer_espn.fit_espn_domestic(today)
     fd = FDHistory(list(football.LEAGUES), today, n_seasons=3)
     odds = {g["id"]: g.get("odds") or {} for g in cup_games.values()}
+    ph = {code: history("football", {f"fbe:{code}:{x['id']}" for x in hist}, code) for code in ("UCL", "UEL", "UECL")}
     books = {code: {w: Book(w) for w in sorted({market.W_THIN, *W_GRID})} for code in ("UCL", "UEL", "UECL")}
     start = hist[0]["date"] + dt.timedelta(days=120)
     for t in checkpoints(start, today):
@@ -282,6 +308,10 @@ def uefa(today: dt.date) -> dict:
             o = odds.get(x["id"]) or {}
             mk = market.no_vig({"1": o.get("ml_home"), "X": o.get("ml_draw"), "2": o.get("ml_away")}, ("1", "X", "2"))
             prices = {"1": o.get("ml_home"), "X": o.get("ml_draw"), "2": o.get("ml_away")}
+            snap = ph[code].get(f"fbe:{code}:{x['id']}")
+            if snap:
+                mk = {k: snap["p"][k] for k in ("1", "X", "2")}
+                prices = {k: snap["prices"].get(k) for k in ("1", "X", "2")}
             for b in books[code].values():
                 b.add({k: pm[k] for k in ("1", "X", "2")}, mk, _result(x["hc"], x["ac"]), prices)
     out = {}

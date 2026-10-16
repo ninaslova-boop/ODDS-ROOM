@@ -83,17 +83,17 @@ jobs:
           git commit -q -m "Site $(date -u +'%Y-%m-%d %H:%M') UTC (${MODE})"
           git push -q --force "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" gh-pages
 
-      - name: Commit pick log (full runs)
-        if: env.MODE == 'full'
+      - name: Commit pick log (full runs) and price history (every run)
         run: |
           git config user.name "odds-room-bot"
           git config user.email "odds-room-bot@users.noreply.github.com"
-          git add data/picks_log.json
+          if [ "$MODE" = "full" ]; then git add data/picks_log.json; fi
+          git add data/price_history 2>/dev/null || true
           if git diff --cached --quiet; then
-            echo "Pick log unchanged"
+            echo "Nothing to commit"
             exit 0
           fi
-          git commit -m "Pick log $(date -u +'%Y-%m-%d %H:%M') UTC"
+          git commit -m "Data $(date -u +'%Y-%m-%d %H:%M') UTC (${MODE})"
           for i in 1 2 3 4; do
             git pull --rebase -X theirs origin main && git push origin HEAD:main && exit 0
             sleep $((i * 5))

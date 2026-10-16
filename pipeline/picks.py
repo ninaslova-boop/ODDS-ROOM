@@ -48,6 +48,18 @@ def is_pick(p_final: float, odds: float | None) -> bool:
     return bool(odds) and p_final * odds > 1.0
 
 
+PUBLISHABLE_KINDS = {"match": ("1", "X", "2"), "total": ("over", "under"), "spread": ("home", "away"),
+                     "btts": ("yes", "no")}
+
+
+def publishable(m: dict) -> bool:
+    """Markets the user can publish: 1X2 / moneyline, the goal or point total, spreads; BTTS only with a real
+    bet365 price for exactly that market. Never cards, corners, shots, team totals or double chance."""
+    if m.get("stat") not in ("goals", "points") or m["kind"] not in PUBLISHABLE_KINDS.get(m["scope"], ()):
+        return False
+    return bool(m.get("b365"))      # every automatic pick needs the bet365 price of that exact market
+
+
 def candidates(match: dict) -> list[dict]:
     """Markets of a match that pass the pick rule with a bet365 price, best first."""
     if market_mod.is_unreliable(match):
@@ -55,7 +67,7 @@ def candidates(match: dict) -> list[dict]:
     out = []
     for m in match["markets"]:
         o = m.get("b365")
-        if not is_pick(m["p"], o) or m.get("unreliable"):
+        if not publishable(m) or not is_pick(m["p"], o) or m.get("unreliable"):
             continue
         if match["sport"] == "nhl" and m["scope"] == "match" and m["kind"] == "X":
             continue
@@ -161,6 +173,8 @@ def _settle_one(match_id: str, sport: str, market: dict, results: dict):
 
 
 def _summary(rows: list[dict]) -> dict:
+    void = [p for p in rows if p["status"] == "void"]
+    rows = [p for p in rows if p["status"] != "void"]      # voided picks never count
     s = [p for p in rows if p["status"] in ("won", "lost", "push")]
     won = sum(p["status"] == "won" for p in s)
     lost = sum(p["status"] == "lost" for p in s)
@@ -169,7 +183,8 @@ def _summary(rows: list[dict]) -> dict:
     staked = won + lost
     decided = [p for p in s if p["status"] != "push"]
     return {
-        "n": len(rows), "open": sum(p["status"] == "open" for p in rows), "won": won, "lost": lost, "push": push,
+        "n": len(rows), "void": len(void), "open": sum(p["status"] == "open" for p in rows), "won": won, "lost": lost,
+        "push": push,
         "hit": round(won / staked, 4) if staked else None,
         "profit": round(profit, 2), "roi": round(profit / staked, 4) if staked else None,
         "avg_odds": round(sum(p["odds"] for p in decided) / len(decided), 3) if decided else None,

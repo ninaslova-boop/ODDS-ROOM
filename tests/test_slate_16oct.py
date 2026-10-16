@@ -182,3 +182,15 @@ def test_export_says_player_data_none_without_current_season(tmp_path):
         out = json.loads(subprocess.run([NODE, str(ROOT / "tests" / "js" / "harness.js"), str(fx)],
                                         capture_output=True, text=True, timeout=60).stdout)
         assert want in out["export"]
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
+def test_export_header_prints_w_per_sport(tmp_path, monkeypatch):
+    monkeypatch.setenv("MARKET_W_NHL", "0.5")
+    meta = {"market_w": {sp: market.weight(sp, False) for sp in market.W}, "market_w_thin": market.W_THIN}
+    assert meta["market_w"]["nhl"] == 0.5 and meta["market_w"]["football"] == 0.4 and market.weight("nba", True) == 0.6
+    fx = tmp_path / "fx.json"
+    fx.write_text(json.dumps({"matches": [], "meta": meta}), encoding="utf-8")
+    out = json.loads(subprocess.run([NODE, str(ROOT / "tests" / "js" / "harness.js"), str(fx)],
+                                    capture_output=True, text=True, timeout=60).stdout)
+    assert "w (utež modela): nogomet 0.4, NHL 0.5, NBA 0.4, Euroliga 0.4; tanek trg (< 4 stavnice): 0.6" in out["export"]

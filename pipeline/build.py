@@ -11,7 +11,7 @@ import logging
 import traceback
 
 from . import (adjust, availability, checks, euroleague_players, football, goalies, market, odds_api, picks, players,
-               rest, soccer_espn, sports)
+               price_history, rest, soccer_espn, sports, user_picks)
 from .util import CACHE_DIR, OUT_DIR, ROOT, RUN, iso, now_utc, parse_iso, read_json, setup_logging, write_json
 
 log = logging.getLogger("pipeline")
@@ -170,6 +170,9 @@ def main(argv=None):
     mst = _safe("market", market.apply, all_matches, rebuild, errors=errors, default={})
     log.info("market check: %s", mst)
 
+    # price history (NHL, NBA, EuroLeague, UEFA): daily and closing prices without margin
+    _safe("price history", price_history.record, all_matches, now_utc(), errors=errors, default=0)
+
     # two sources disagree on a fixture (The Odds API): DATA MISMATCH, no picks from it
     for m in all_matches:
         if m.get("mismatch"):
@@ -208,11 +211,14 @@ def main(argv=None):
     write_json(OUT_DIR / "matches.json", {"generated": gen, "matches": all_matches, "mismatches": mismatches})
     write_json(OUT_DIR / "validation.json", read_json(ROOT / "data" / "validation.json", {}) or {"competitions": {}})
     write_json(OUT_DIR / "results.json", {"generated": gen, "results": recent_results(all_matches, results)})
+    write_json(OUT_DIR / "user_picks.json", {"generated": gen, **user_picks.publish(results)})
     write_json(OUT_DIR / "players.json", {"generated": gen, **player_out})
     write_json(OUT_DIR / "picks.json", {"generated": gen, "picks": log_data["picks"], "stats": log_data["stats"]})
     write_json(OUT_DIR / "meta.json", {"generated": gen, "today": today.isoformat(), "status": status,
                                        "mode": RUN["mode"], "news": len(avail),
                                        "injury_sources": availability.LAST_COVERAGE, "player_data": player_data,
+                                       "market_w": {sp: market.weight(sp, False) for sp in market.W},
+                                       "market_w_thin": market.W_THIN,
                                        "errors": errors[:80], "ratings": ratings}, compact=False)
     (CACHE_DIR / "last_mode.txt").write_text(RUN["mode"], encoding="utf-8")
     log.info("done (%s): %d matches, %d errors", RUN["mode"], len(all_matches), len(errors))

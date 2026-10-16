@@ -176,12 +176,13 @@ const PROP_EN = {
 /* ---------- data ---------- */
 async function load() {
   const get = (f) => fetch(`data/${f}`, { cache: "no-cache" }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
-  const [matches, players, picks, meta, validation, results] = await Promise.all(
-    ["matches.json", "players.json", "picks.json", "meta.json", "validation.json", "results.json"].map(get));
+  const [matches, players, picks, meta, validation, results, userPicks] = await Promise.all(
+    ["matches.json", "players.json", "picks.json", "meta.json", "validation.json", "results.json", "user_picks.json"].map(get));
   S.data.matches = matches?.matches || [];
   S.data.mismatches = matches?.mismatches || [];
   S.data.validation = validation?.competitions || {};
   S.data.results = results?.results || {};
+  S.data.userPicks = userPicks || { picks: [], stats: {} };
   S.data.players = players || {};
   S.data.picks = picks || { picks: [], stats: {} };
   S.data.meta = meta || {};
@@ -544,12 +545,13 @@ function matchDetails(x) {
 }
 
 function matchPlayers(x) {
-  const list = (S.data.players[x.sport] || []).filter((p) => p.next?.match === x.id && p.props);
+  const list = (S.data.players[x.sport] || []).filter((p) => p.next?.match === x.id && (p.props || p.props_note));
   if (!list.length) return "";
   const key = { football: "1+ strel v okvir", nhl: "Strelov na gol 3+", nba: null }[x.sport];
   const sorted = list.slice().sort((a, b) => (b.next.exp_shots || b.next.exp_sog || b.next.proj_pts || 0) - (a.next.exp_shots || a.next.exp_sog || a.next.proj_pts || 0)).slice(0, 12);
   return `<div class="scroll"><table class="tbl"><tr><th>Igralec</th><th>Ekipa</th><th>Napoved</th><th>Top dogodki</th></tr>
     ${sorted.map((p) => {
+      if (!p.props) return `<tr><td>${esc(p.name)}</td><td class="muted">${esc(p.team)}</td><td class="num">${fmtNum(p.pts, 1)} točk (sezona)</td><td class="faint">premalo tekem (${p.gp}/5) – ni verjetnosti</td></tr>`;
       const proj = x.sport === "football" ? `${p.next.exp_shots} strelov · ${p.next.exp_sot} v okvir` : x.sport === "nhl" ? `${p.next.exp_sog} SOG` : `${p.next.proj_pts} točk`;
       const props = p.props.filter((r) => r.p >= 0.5 && r.p <= 0.92).sort((a, b) => b.p - a.p).slice(0, 2);
       return `<tr><td>${esc(p.name)}</td><td class="muted">${esc(p.team)}</td><td class="num">${proj}</td><td>${props.map((r) => `${esc(r.label)} <b class="g">${pct(r.p)}</b>`).join(" · ") || (key ? "" : "")}</td></tr>`;
@@ -711,7 +713,52 @@ function viewPlayers(v) {
 const LS_IN = "oddsroom.b365in", LS_MY = "oddsroom.mypicks";
 function lsGet(k, d) { try { return JSON.parse(localStorage.getItem(k) || "null") ?? d; } catch (e) { return d; } }
 function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } }
-function myPicks() { return lsGet(LS_MY, []); }
+const LS_BACKUP = "oddsroom.lastbackup", LS_TOKEN = "oddsroom.ghtoken";
+const REPO = { owner: "ninaslova-boop", repo: "ODDS-ROOM", path: "data/user_picks.json", branch: "main" };
+function localPicks() { return lsGet(LS_MY, []); }
+/* the official record: picks saved in the repository (published with status) + picks only in this device */
+function myPicks() {
+  const repo = S.data.userPicks?.picks || [];
+  const keys = new Set(repo.map((p) => p.key));
+  return repo.concat(localPicks().filter((p) => !keys.has(p.key)));
+}
+function unsavedPicks() {
+  const keys = new Set((S.data.userPicks?.picks || []).map((p) => p.key));
+  const saved = new Set(lsGet("oddsroom.savedkeys", []));
+  return localPicks().filter((p) => !keys.has(p.key) && !saved.has(p.key));
+}
+function backupWarning() {
+  const n = unsavedPicks().length;
+  if (!n) return "";
+  const last = lsGet(LS_BACKUP, null);
+  const days = last ? Math.floor((Date.now() - new Date(last).getTime()) / 86400e3) : null;
+  return `<div class="warn-box"><b>NI VARNOSTNO SHRANJENO:</b> ${n} pickov je samo v tej napravi. ${days == null ? "Še nikoli shranjeno ali izvoženo." : `Zadnje shranjevanje / izvoz: pred ${days} dnevi.`} Uporabi <b>Shrani na GitHub</b> (uradni dnevnik) ali <b>Izvozi</b>.</div>`;
+}
+/* base64 for UTF-8 text */
+const b64enc = (t) => btoa(unescape(encodeURIComponent(t)));
+const b64dec = (t) => decodeURIComponent(escape(atob(t.replace(/\n/g, ""))));
+async function saveToGitHub() {
+  const token = lsGet(LS_TOKEN, null);
+  if (!token) throw new Error("ni žetona (GitHub token)");
+  const url = `https://api.github.com/repos/${REPO.owner}/${REPO.repo}/contents/${REPO.path}`;
+  const hdr = { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" };
+  const cur = await fetch(`${url}?ref=${REPO.branch}`, { headers: hdr, cache: "no-store" });
+  if (!cur.ok && cur.status !== 404) throw new Error(`GitHub ${cur.status}`);
+  const j = cur.ok ? await cur.json() : null;
+  const data = j ? JSON.parse(b64dec(j.content)) : { picks: [] };
+  const have = new Set((data.picks || []).map((p) => p.key));
+  const strip = ({ status, score, ...rest }) => rest;          // status is computed by the pipeline
+  const add = localPicks().filter((p) => !have.has(p.key)).map(strip);
+  data.picks = (data.picks || []).concat(add);
+  data.updated = new Date().toISOString();
+  const put = await fetch(url, { method: "PUT", headers: { ...hdr, "Content-Type": "application/json" },
+    body: JSON.stringify({ message: `User bet365 picks: +${add.length} (app)`, content: b64enc(JSON.stringify(data, null, 1)),
+      branch: REPO.branch, ...(j ? { sha: j.sha } : {}) }) });
+  if (!put.ok) throw new Error(`GitHub ${put.status}: ${(await put.text()).slice(0, 120)}`);
+  lsSet("oddsroom.savedkeys", [...new Set([...lsGet("oddsroom.savedkeys", []), ...localPicks().map((p) => p.key)])]);
+  lsSet(LS_BACKUP, new Date().toISOString());
+  return add.length;
+}
 
 function mainLine(x, scope) {
   const o = x.odds_raw || {};
@@ -816,13 +863,14 @@ function viewB365(v) {
     const inp = lsGet(LS_IN, {})[r.key] || {};
     const res = rowResult(r, { o: inp.o ?? r.b365 ?? "", l: inp.l });
     if (!res.ok) return;
-    const list = myPicks();
-    if (list.some((p) => p.key === r.key)) return;
+    const list = localPicks();
+    if (myPicks().some((p) => p.key === r.key)) return;
     list.push({ key: r.key, match: r.x.id, sport: r.x.sport, league: r.x.league_name, home: r.x.home, away: r.x.away,
       kickoff: r.x.kickoff, stat: r.stat, scope: r.scope, kind: r.kind, line: res.line ?? null, label: slLabel({ ...r, line: res.line }, r.x),
       p_final: +res.p.toFixed(4), p_model: +res.pm.toFixed(4), w: r.x.blend?.w ?? 1, odds: res.o, odds_src: "bet365 (vnos)",
       ev: +res.ev.toFixed(4), strong: res.strong, logged: new Date().toISOString(), status: "open" });
     lsSet(LS_MY, list);
+    if (lsGet(LS_TOKEN, null)) saveToGitHub().then(() => render()).catch((e) => { render(); $("#myMsg").textContent = "Shranjevanje ni uspelo: " + e.message; });
     render();
   });
   $("#bDay").onchange = (e) => { B.day = e.target.value; render(); };
@@ -833,7 +881,7 @@ function viewB365(v) {
 
 /* the user's bet365 picks: settled in the browser with data/results.json */
 function settleMyPicks() {
-  const list = myPicks();
+  const list = localPicks();
   let changed = false;
   for (const p of list) {
     if (p.status !== "open") continue;
@@ -846,7 +894,7 @@ function settleMyPicks() {
     changed = true;
   }
   if (changed) lsSet(LS_MY, list);
-  return list;
+  return myPicks();
 }
 function pickSummary(list) {
   const d = list.filter((p) => p.status === "won" || p.status === "lost");
@@ -862,8 +910,9 @@ function myPicksBlock() {
   const groups = {};
   for (const p of list) (groups[`${SPORTS[p.sport]?.name || p.sport} · w=${p.w}`] ||= []).push(p);
   const sb = (st) => ({ won: `<span class="badge">ZADETEK</span>`, lost: `<span class="badge red">ZGREŠEN</span>`, push: `<span class="badge grey">VRAČILO</span>`, open: `<span class="badge amber">ODPRT</span>` }[st] || st);
-  return `<h2 style="margin-top:28px">Moj dnevnik (bet365)</h2>
-    <p class="section-note">Picki, ki si jih zabeležil s kvoto bet365. Poravnajo se sami, ko je rezultat znan. Shranjeni so samo v tej napravi: za varnostno kopijo uporabi Izvozi.</p>
+  return `<h2 style="margin-top:28px">Uradni dnevnik (moji bet365 picki)</h2>
+    <p class="section-note">To je uradni zapis: picki s kvoto bet365, ki si jo vnesel. <b>Shrani na GitHub</b> jih zapiše v repozitorij (data/user_picks.json), poravna jih pipeline. Samodejni picki modela so ločen »model shadow log« v zavihku Dnevnik.</p>
+    ${backupWarning()}
     <div class="kpis">
       <div class="kpi"><div class="l">Picki</div><div class="v">${s.n}</div><div class="faint" style="font-size:12px">${s.open} odprtih</div></div>
       <div class="kpi"><div class="l">Z – P</div><div class="v">${s.won}–${s.lost}</div></div>
@@ -878,15 +927,25 @@ function myPicksBlock() {
         <td class="r num">${pct(p.p_final, 1)} <span class="faint">(${pct(p.p_model)})</span></td><td class="r num">${odds(p.odds)}</td><td class="r num">${p.ev.toFixed(3)}</td>
         <td>${sb(p.status)}${p.score ? ` <span class="faint">${esc(p.score)}</span>` : ""}</td><td><button class="btn o s" data-del="${esc(p.key)}" title="Odstrani">×</button></td></tr>`).join("")}
     </table>${!list.length ? `<div class="empty">Še ni zabeleženih pickov.</div>` : ""}</div>
-    <div class="row" style="margin-top:8px"><button class="btn o" id="myExport">Izvozi</button><button class="btn o" id="myImport">Uvozi</button><span class="muted small" id="myMsg"></span></div>`;
+    <div class="row" style="margin-top:8px"><button class="btn" id="mySave">Shrani na GitHub</button><button class="btn o" id="myExport">Izvozi</button><button class="btn o" id="myImport">Uvozi</button><button class="btn o" id="myToken">${lsGet(LS_TOKEN, null) ? "Žeton ✓" : "Nastavi žeton"}</button><span class="muted small" id="myMsg"></span></div>`;
 }
 function wireMyPicks(v) {
   v.querySelectorAll("[data-del]").forEach((b) => b.onclick = () => {
+    if ((S.data.userPicks?.picks || []).some((p) => p.key === b.dataset.del)) { alert("Ta pick je v uradnem dnevniku na GitHubu in ga ni mogoče odstraniti iz aplikacije."); return; }
     if (!confirm("Odstranim ta pick iz dnevnika?")) return;
-    lsSet(LS_MY, myPicks().filter((p) => p.key !== b.dataset.del)); render();
+    lsSet(LS_MY, localPicks().filter((p) => p.key !== b.dataset.del)); render();
   });
-  const ex = $("#myExport"), im = $("#myImport");
-  if (ex) ex.onclick = () => navigator.clipboard?.writeText(JSON.stringify(myPicks())).then(() => ($("#myMsg").textContent = "Kopirano v odložišče."));
+  const ex = $("#myExport"), im = $("#myImport"), sv = $("#mySave"), tk = $("#myToken");
+  if (ex) ex.onclick = () => navigator.clipboard?.writeText(JSON.stringify(myPicks())).then(() => { lsSet(LS_BACKUP, new Date().toISOString()); $("#myMsg").textContent = "Kopirano v odložišče."; });
+  if (tk) tk.onclick = () => {
+    const t = prompt("GitHub fine-grained token (samo repozitorij ODDS-ROOM, dovoljenje Contents: Read and write). Shrani se samo v tej napravi. Prazno = izbriši.");
+    if (t === null) return;
+    t.trim() ? lsSet(LS_TOKEN, t.trim()) : localStorage.removeItem(LS_TOKEN);
+    render();
+  };
+  if (sv) sv.onclick = () => { $("#myMsg").textContent = "Shranjujem…";
+    saveToGitHub().then((n) => { $("#myMsg").textContent = `Shranjeno (${n} novih). Na strani bo vidno po naslednji posodobitvi.`; })
+      .catch((e) => { $("#myMsg").textContent = "Napaka: " + e.message; }); };
   if (im) im.onclick = () => {
     const t = prompt("Prilepi izvožen dnevnik (JSON):");
     if (!t) return;
@@ -894,7 +953,7 @@ function wireMyPicks(v) {
       const add = JSON.parse(t);
       if (!Array.isArray(add)) throw new Error("ni seznam");
       const have = new Set(myPicks().map((p) => p.key));
-      lsSet(LS_MY, myPicks().concat(add.filter((p) => p && p.key && !have.has(p.key) && p.odds > 1)));
+      lsSet(LS_MY, localPicks().concat(add.filter((p) => p && p.key && !have.has(p.key) && p.odds > 1)));
       render();
     } catch (e) { $("#myMsg").textContent = "Napaka: " + e.message; }
   };
@@ -936,7 +995,8 @@ function viewLog(v) {
   const list = all.filter((p) => S.log.filter === "all" || (S.log.filter === "open" ? p.status === "open" : p.status !== "open"))
     .sort((a, b) => b.kickoff.localeCompare(a.kickoff));
   const statusBadge = (s) => ({ won: `<span class="badge">ZADETEK</span>`, lost: `<span class="badge red">ZGREŠEN</span>`, push: `<span class="badge grey">VRAČILO</span>`, void: `<span class="badge grey">RAZVELJ.</span>`, open: `<span class="badge amber">ODPRT</span>` }[s] || s);
-  v.innerHTML = `<h2>Dnevnik pickov</h2>
+  v.innerHTML = `<h2>Model shadow log (samodejni picki)</h2>
+    <div class="warn-box">To ni uradni dnevnik. Uradni zapis so tvoji picki s kvoto bet365 (zavihek bet365 → Uradni dnevnik). Tukaj model sam beleži, kaj bi izbral.</div>
     <p class="section-note">Samodejni dnevnik: en pick na tekmo, ko je p_final × kvota bet365 &gt; 1.00 (kvota bet365 iz football-data.co.uk; povprečje stavnic se nikoli ne shrani kot cena). ◆ = p × kvota ≥ 1.10. Nezanesljive tekme in DATA MISMATCH ne dajo picka. Starejši picki (pred 16. 10. 2026) so po starem pravilu. Nič se ne briše. Vložek 1 enota. Svoje picke z vnesenimi kvotami bet365 vodiš v zavihku bet365.</p>
     <div class="kpis">
       <div class="kpi"><div class="l">Picki</div><div class="v">${k.n ?? 0}</div><div class="faint" style="font-size:12px">${k.open ?? 0} odprtih</div></div>
@@ -1173,6 +1233,13 @@ function viewPosts(v) {
 load();
 
 /* ---------- export for Claude ---------- */
+/* current w per sport (p_final = w × model + (1 − w) × market) */
+function wLine() {
+  const w = S.data.meta.market_w || {};
+  const names = { football: "nogomet", nhl: "NHL", nba: "NBA", euroleague: "Euroliga" };
+  const parts = Object.keys(names).map((k) => `${names[k]} ${w[k] ?? 0.4}`);
+  return `w (utež modela): ${parts.join(", ")}; tanek trg (< 4 stavnice): ${S.data.meta.market_w_thin ?? 0.6}`;
+}
 function claudeExport(day, sport, withPlayers, allMatches) {
   const inDay = (iso) => day === "all2" ? [todayKey(0), todayKey(1)].includes(dayKey(iso)) : dayKey(iso) === day;
   const spOk = (s) => sport === "all" || s === sport;
@@ -1190,8 +1257,9 @@ function claudeExport(day, sport, withPlayers, allMatches) {
   const noInj = [...comps.values()].filter((x) => !(inj[injKey(x)] || []).length).map((x) => x.league_name);
   const notVal = [...comps.values()].filter((x) => !isValidated(x)).map((x) => x.league_name);
   L.push(`Podatki o poškodbah: ${[...comps.values()].filter((x) => (inj[injKey(x)] || []).length).map((x) => `${x.league_name} (${inj[injKey(x)].join(", ")})`).join(", ") || "–"}`);
-  if (noInj.length) L.push(`injury data: none → ${noInj.join(", ")}`);
+  if (noInj.length) L.push(`injury data: none → ${noInj.join(", ")} (za nogomet razen Premier League ni brezplačnega vira poškodb za tekočo sezono; postave ~1 h pred tekmo so upoštevane)`);
   if (notVal.length) L.push(`NOT VALIDATED (backtest manjka ali premalo tekem): ${notVal.join(", ")}`);
+  L.push(wLine());
   const elPd = plData("euroleague");
   if (ms.some((x) => x.sport === "euroleague")) {
     L.push(elPd?.ok ? `EuroLeague player data: EuroLeague API, sezona ${elPd.season} (${elPd.games} tekem)` : `player data: none → EuroLeague${elPd?.reason ? ` (${elPd.reason})` : ""}`);
@@ -1205,7 +1273,7 @@ function claudeExport(day, sport, withPlayers, allMatches) {
   L.push("");
   const st = S.data.picks.stats || {};
   const a = st.all || {};
-  L.push("## Stanje modela (samodejni dnevnik)");
+  L.push("## Model shadow log (samodejni picki, ni uradni zapis)");
   L.push(`Picki: ${a.n ?? 0} (odprtih ${a.open ?? 0}) · Z–P–V ${a.won ?? 0}–${a.lost ?? 0}–${a.push ?? 0} · zadetki ${pct(a.hit, 1)} (pričakovano ${pct(a.avg_p, 1)}) · profit ${fmtNum(a.profit ?? 0, 2)}u · ROI ${a.roi == null ? "–" : (a.roi * 100).toFixed(1) + " %"}`);
   if (st.by_w) L.push("Po športu in w (zadetki / pričakovano, profit): " + Object.entries(st.by_w).flatMap(([sp, ws]) => Object.entries(ws).map(([w, k]) => `${SPORTS[sp]?.name || sp} ${w}: ${pct(k.hit, 1)}/${pct(k.avg_p, 1)}, ${fmtNum(k.profit, 2)}u (n${k.n})`)).join(" · "));
   const cal = st.calibration || [];
@@ -1213,7 +1281,7 @@ function claudeExport(day, sport, withPlayers, allMatches) {
   const pc = st.picks_calibration || [];
   if (pc.length) L.push("Kalibracija samo pickov: " + pc.map((b) => `${pct(b.pred)}→${pct(b.act)} (n${b.n})`).join(", "));
   const mine = settleMyPicks();
-  if (mine.length) { const k = pickSummary(mine); L.push(`Moji bet365 picki: ${k.n} (odprtih ${k.open}) · ${k.won}–${k.lost} · zadetki ${pct(k.hit, 1)} (pričakovano ${pct(k.exp, 1)}) · ${k.profit.toFixed(2)}u`); }
+  { const k = pickSummary(mine); L.push(`URADNI DNEVNIK (moji bet365 picki): ${k.n} (odprtih ${k.open}) · ${k.won}–${k.lost} · zadetki ${pct(k.hit, 1)} (pričakovano ${pct(k.exp, 1)}) · ${k.profit.toFixed(2)}u${unsavedPicks().length ? ` · ${unsavedPicks().length} NI VARNOSTNO SHRANJENO` : ""}`); }
   L.push("");
 
   const picks = (S.data.picks.picks || []).filter((p) => p.status === "open" && inDay(p.kickoff) && spOk(p.sport));
@@ -1289,6 +1357,8 @@ function claudeExport(day, sport, withPlayers, allMatches) {
     const avgTxt = (pl, pr) => pl.l5 && pl[pr.stat] != null ? ` · sezona ${fmtNum(pl[pr.stat], 1)}, L5 ${fmtNum(pl.l5[pr.stat], 1)} (${pl.gp} tekem)` : "";
     for (const { pl, pr, x } of pp.slice(0, 25)) L.push(`- ${pl.name} (${pl.team}, ${pl.next.home ? "doma" : "v gosteh"} vs ${pl.next.opp}, ${hm(x.kickoff)}): ${pr.label} ${pct(pr.p)}, min. kvota ${(1 / pr.p).toFixed(2)}${avgTxt(pl, pr)}${(inj[injKey(x)] || []).length ? "" : " [injury data: none]"}`);
     if (spOk("euroleague") && ms.some((x) => x.sport === "euroleague") && elPd?.ok === false) L.push("- EuroLeague: player data: none");
+    const few = (S.data.players.euroleague || []).filter((pl) => pl.props_note && pl.next && S.data.byId[pl.next.match] && inDay(S.data.byId[pl.next.match].kickoff));
+    if (spOk("euroleague") && few.length) L.push(`- EuroLeague: ${few.length} igralcev ima premalo tekem (< 5) – too few games, brez verjetnosti: ${few.slice(0, 10).map((pl) => pl.name).join(", ")}${few.length > 10 ? " …" : ""}`);
     if (!pp.length) L.push("Ni podatkov o igralcih za ta dan.");
   }
   return L.join("\n");
