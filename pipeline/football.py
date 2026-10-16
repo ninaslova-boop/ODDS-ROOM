@@ -27,6 +27,13 @@ LEAGUES = {
 
 DC_RHO = -0.06
 
+# Ridge of the goal model per division, chosen by pipeline/backtest.py (part "domestic",
+# walk-forward on 11 850 games, 1X2 + O/U 2.5 log-loss). Second tiers need more shrinkage.
+DOMESTIC_RIDGE = {
+    "E0": 10.0, "E1": 15.0, "SP1": 8.0, "I1": 8.0, "D1": 15.0, "F1": 10.0, "N1": 10.0, "P1": 5.0,
+    "B1": 15.0, "T1": 8.0, "SC0": 10.0, "G1": 5.0, "D2": 15.0, "I2": 15.0, "SP2": 15.0, "F2": 15.0,
+}
+
 # ESPN league slugs, used for fixtures that football-data.co.uk has not published yet and for lineups
 ESPN_SLUG = {
     "E0": "eng.1", "E1": "eng.2", "SP1": "esp.1", "SP2": "esp.2", "I1": "ita.1", "I2": "ita.2",
@@ -303,7 +310,7 @@ def build(today: dt.date, horizon_days: int = 7) -> dict:
         prior = newcomer_prior(cur, old, data.get(UPPER.get(div, ""), {}).get("prev"))
         # previous season counts half (on top of time decay)
         goals = to_games(cur, "FTHG", "FTAG") + to_games(old, "FTHG", "FTAG", 0.5)
-        rg = models.fit_poisson(goals, today, half_life_days=180, ridge=5.0, prior=prior)
+        rg = models.fit_poisson(goals, today, half_life_days=180, ridge=DOMESTIC_RIDGE.get(div, 10.0), prior=prior)
         if not rg:
             continue
         goal_ratings[div] = rg

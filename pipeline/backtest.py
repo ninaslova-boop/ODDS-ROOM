@@ -168,7 +168,7 @@ def cups(today: dt.date):
         test = [x for x in hist if t <= x["date"] < t + dt.timedelta(days=14)]
         if not test or len(train) < 50:
             continue
-        goal_ratings = {div: r for div in football.LEAGUES if (r := fd.fit(div, t))}
+        goal_ratings = {div: r for div in football.LEAGUES if (r := fd.fit(div, t, ridge=football.DOMESTIC_RIDGE.get(div, 10.0)))}
         espn_ratings = {}
         for c, games in dom_games.items():
             g = [x for x in games if t - dt.timedelta(days=430) <= x["date"] < t]
@@ -208,7 +208,7 @@ def cups(today: dt.date):
     # agreement with the market on the coming games (ESPN prices without margin)
     up = [g for g in cup_games.values() if not g.get("done") and g.get("odds", {}).get("ml_home")]
     if up and per_cp:
-        goal_ratings = {div: r for div in football.LEAGUES if (r := fd.fit(div, today))}
+        goal_ratings = {div: r for div in football.LEAGUES if (r := fd.fit(div, today, ridge=football.DOMESTIC_RIDGE.get(div, 10.0)))}
         espn_ratings = {c: r for c, games in dom_games.items()
                         if (r := models.fit_poisson([x for x in games if x["date"] >= today - dt.timedelta(days=430)],
                                                     today, half_life_days=200, ridge=5.0))}
