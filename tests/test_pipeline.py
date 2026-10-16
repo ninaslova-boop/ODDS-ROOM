@@ -449,3 +449,15 @@ def test_cup_priors_club_country_without_espn_league():
     assert prior["Slovan Bratislava"] == pytest.approx((s / 2, -s / 2))
     assert prior["Some Village FC"][0] == pytest.approx(g * soccer_espn.UNKNOWN_STRENGTH / 2)
     assert "Slovan Bratislava" not in mapped          # no domestic rating, only the league strength
+
+
+def test_nhl_guard_against_espn_moneyline():
+    M = models.score_matrix(3.6, 2.4, 12)
+    mk = models.goal_markets(M, hockey=True, total_lines=(5.5, 6.5))
+    m = {"id": "nhl:1", "sport": "nhl", "home": "WPG", "away": "MIN", "markets": mk,
+         "odds_raw": {"ml_home": 1.95, "ml_away": 1.95, "total": 6.5, "over": 1.91, "under": 1.91}}
+    st = market.apply([m], adjust._rebuild_football)
+    home = next(x for x in m["markets"] if x["scope"] == "match" and x["kind"] == "1")
+    assert home["p"] > 0.6 and m["market_ref"]["gap_1x2"] > market.GUARD_PP
+    assert home.get("unreliable") and st["flagged"] == 1
+    assert all(x.get("unreliable") for x in m["markets"] if x["scope"] == "spread")

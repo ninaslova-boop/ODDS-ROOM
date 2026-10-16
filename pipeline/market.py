@@ -114,6 +114,11 @@ def apply(matches: list[dict], rebuild) -> dict:
     Returns counters for logging."""
     stats = {"checked": 0, "flagged": 0, "blended": 0}
     for m in matches:
+        if m["sport"] in US_SPORTS:
+            if guard_us(m):
+                stats["flagged"] += 1
+            stats["checked"] += "market_ref" in m
+            continue
         if m["sport"] != "football" or not m.get("exp"):
             continue
         ref = reference(m)
@@ -145,3 +150,44 @@ def apply(matches: list[dict], rebuild) -> dict:
             stats["flagged"] += 1
         m["market_ref"] = info
     return stats
+
+
+# --------------------------------------------------------------------------
+# NHL / NBA: the same guard against ESPN prices without margin (no Pinnacle there)
+# --------------------------------------------------------------------------
+US_SPORTS = ("nhl", "nba")
+
+
+def guard_us(m: dict) -> bool:
+    """Moneyline (incl. OT) and the ESPN total line. Returns True when a group was flagged."""
+    o = m.get("odds_raw") or {}
+    ml = no_vig({"1": o.get("ml_home"), "2": o.get("ml_away")}, ("1", "2"))
+    line = o.get("total")
+    ou = no_vig({"over": o.get("over"), "under": o.get("under")}, ("over", "under")) if line else None
+    if not ml and not ou:
+        return False
+
+    def mp(scope, kind, ln=None):
+        return next((k["p"] for k in m["markets"] if k["scope"] == scope and k["kind"] == kind
+                     and (ln is None or k.get("line") == ln)), None)
+
+    info = {"src": "espn", "p": {}, "model": {}, "gap_1x2": None, "gap_ou": None}
+    flag_ml = flag_ou = False
+    if ml and mp("match", "1") is not None and mp("match", "2") is not None:
+        p1, p2 = mp("match", "1"), mp("match", "2")
+        info["p"].update({"1": round(ml["1"], 4), "2": round(ml["2"], 4)})
+        info["model"].update({"1": p1, "2": p2})
+        info["gap_1x2"] = round(max(abs(p1 - ml["1"]), abs(p2 - ml["2"])), 4)
+        flag_ml = info["gap_1x2"] > GUARD_PP
+    if ou and mp("total", "over", line) is not None:
+        po = mp("total", "over", line)
+        info["p"]["over"] = round(ou["over"], 4)
+        info["model"]["over"] = po
+        info["line"] = line
+        info["gap_ou"] = round(abs(po - ou["over"]), 4)
+        flag_ou = info["gap_ou"] > GUARD_PP
+    for k in m["markets"]:
+        if (flag_ml and k["scope"] in RESULT_SCOPES) or (flag_ou and k["scope"] == "total"):
+            k["unreliable"] = True
+    m["market_ref"] = info
+    return flag_ml or flag_ou
