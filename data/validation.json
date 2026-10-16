@@ -1,5 +1,5 @@
 {
- "generated": "2026-10-16T12:52:45Z",
+ "generated": "2026-10-16T12:59:57Z",
  "step_days": 14,
  "competitions": {
   "E0": {
@@ -1243,7 +1243,7 @@
    "prod_w": 0.6,
    "odds_src": "ESPN (ne bet365)",
    "market_src": "ESPN brez marže (1 stavnica)",
-   "validated": true,
+   "validated": false,
    "by_w": {
     "0.2": {
      "w": 0.2,
@@ -1321,7 +1321,7 @@
    "prod_w": 0.6,
    "odds_src": "ESPN (ne bet365)",
    "market_src": "ESPN brez marže (1 stavnica)",
-   "validated": true,
+   "validated": false,
    "by_w": {
     "0.2": {
      "w": 0.2,
@@ -1399,7 +1399,7 @@
    "prod_w": 1.0,
    "odds_src": "ni kvot",
    "market_src": "ni kvot",
-   "validated": true,
+   "validated": false,
    "by_w": {
     "1": {
      "w": 1.0,
@@ -1429,7 +1429,7 @@
    "prod_w": 0.6,
    "odds_src": "ESPN (ne bet365)",
    "market_src": "ESPN brez marže (1 stavnica)",
-   "validated": true,
+   "validated": false,
    "by_w": {
     "0.2": {
      "w": 0.2,
@@ -1507,7 +1507,7 @@
    "prod_w": 0.6,
    "odds_src": "ESPN (ne bet365)",
    "market_src": "ESPN brez marže (1 stavnica)",
-   "validated": true,
+   "validated": false,
    "by_w": {
     "0.2": {
      "w": 0.2,
@@ -1585,7 +1585,7 @@
    "prod_w": 0.6,
    "odds_src": "ESPN (ne bet365)",
    "market_src": "ESPN brez marže (1 stavnica)",
-   "validated": true,
+   "validated": false,
    "by_w": {
     "0.2": {
      "w": 0.2,
