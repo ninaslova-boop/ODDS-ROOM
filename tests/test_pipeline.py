@@ -842,3 +842,82 @@ def test_bet365_goal_prices_never_on_cards_or_corners():
     bad = [{"odds_src": "bet365", "stat": "cards", "status": "open"}, {"odds_src": "bet365", "stat": "goals", "status": "open"}]
     picks.repair(bad)
     assert bad[0]["status"] == "void" and "kartoni" not in bad[0]["void_reason"] and bad[1]["status"] == "open"
+
+
+# ---------------- EuroLeague official API: player and team stats ----------------
+def _el_game_stats(pts_a, secs=1500):
+    def pl(code, name, club, pts):
+        return {"player": {"person": {"code": code, "name": name}, "club": {"name": club}, "positionName": "Guard"},
+                "stats": {"timePlayed": secs, "points": pts, "totalRebounds": 4, "assistances": 3, "fieldGoalsMade3": 2}}
+    return {"local": {"players": [pl("1", "HIFI, NADIR", "Paris Basketball", pts_a)],
+                      "total": {"points": 90, "totalRebounds": 35, "assistances": 18, "fieldGoalsMade3": 10}},
+            "road": {"players": [pl("2", "JAMES, MIKE", "AS Monaco", 15)],
+                     "total": {"points": 85, "totalRebounds": 30, "assistances": 15, "fieldGoalsMade3": 8}}}
+
+
+def _el_season_list(n):
+    return {"data": [{"gameCode": i, "played": True, "utcDate": f"2026-10-{i + 1:02d}T18:00:00",
+                      "local": {"club": {"name": "Paris Basketball"}}, "road": {"club": {"name": "AS Monaco"}}}
+                     for i in range(1, n + 1)]
+            + [{"gameCode": 99, "played": False, "utcDate": "2026-10-30T18:00:00",
+                "local": {"club": {"name": "AS Monaco"}}, "road": {"club": {"name": "Paris Basketball"}}}]}
+
+
+def _el_api(monkeypatch, tmp_path, pts_by_game, season_list=None, fail=False):
+    from pipeline import euroleague_players as elp
+    calls = []
+    monkeypatch.setattr(elp, "DAY_CACHE", tmp_path / "day")
+    monkeypatch.setattr(elp, "BOX", tmp_path / "box.json")
+
+    def fake(url, **kw):
+        calls.append(url)
+        if fail:
+            raise RuntimeError("404 Not Found")
+        if url.endswith("/games"):
+            return season_list if season_list is not None else _el_season_list(len(pts_by_game))
+        code = int(url.split("/games/")[1].split("/")[0])
+        return _el_game_stats(pts_by_game[code - 1])
+    monkeypatch.setattr(elp, "http_get", fake)
+    return elp, calls
+
+
+def test_euroleague_current_season_only_and_day_cache(monkeypatch, tmp_path):
+    elp, calls = _el_api(monkeypatch, tmp_path, [10, 12, 14, 16, 18, 20, 22])
+    today = dt.date(2026, 10, 16)
+    assert elp.season_code(today) == "E2026" and elp.season_code(dt.date(2027, 3, 1)) == "E2026"
+    box = elp.load(today)
+    assert box["ok"] and box["season"] == "E2026" and len(box["games"]) == 7
+    assert all("/competitions/E/seasons/E2026/" in c for c in calls)        # never last season
+    n = len(calls)
+    elp.load(today)                       # same day: list from the day cache, box scores from the box cache
+    assert len(calls) == n
+    elp.load(today + dt.timedelta(days=1))
+    assert len(calls) == n + 1            # next day: only the season list again
+
+
+def test_euroleague_no_current_season_means_no_player_data(monkeypatch, tmp_path):
+    elp, _ = _el_api(monkeypatch, tmp_path, [], fail=True)
+    box = elp.load(dt.date(2026, 10, 16))
+    assert not box["ok"] and "E2026" in box["reason"] and box["games"] == {}
+    elp2, _ = _el_api(monkeypatch, tmp_path / "b", [], season_list={"data": []})
+    box2 = elp2.load(dt.date(2026, 10, 16))
+    assert not box2["ok"] and "nima odigranih" in box2["reason"]
+
+
+def test_euroleague_season_and_last5_averages_and_props(monkeypatch, tmp_path):
+    elp, _ = _el_api(monkeypatch, tmp_path, [10, 12, 14, 16, 18, 20, 22])
+    box = elp.load(dt.date(2026, 10, 16))
+    el = {"matches": [{"id": "euroleague:x", "home": "AS Monaco", "away": "Paris Basketball",
+                       "kickoff": "2026-10-30T18:00:00Z"}]}
+    rows = elp.players(el, box)
+    hifi = next(r for r in rows if r["name"] == "Nadir Hifi")
+    assert hifi["gp"] == 7 and hifi["pts"] == 16.0 and hifi["l5"]["pts"] == 18.0
+    assert hifi["pra"] == 16.0 + 4 + 3 and hifi["l5"]["pra"] == 25.0 and hifi["tpm"] == 2.0 and hifi["min"] == 25.0
+    assert hifi["next"]["proj_pts"] == 17.0                                  # (16 + 18) / 2, no team model
+    p = next(x for x in hifi["props"] if x["stat"] == "pts" and x["line"] == 17.5)
+    assert p["p"] == pytest.approx(1 - models.norm_cdf((17.5 - 17.0) / max(elp._sd([10, 12, 14, 16, 18, 20, 22]), 4.0)), abs=1e-3)
+    assert not [x for x in hifi["props"] if x["stat"] in ("reb", "ast") and x["line"] == 0.5]
+    ts = elp.team_stats(box)
+    assert ts["Paris Basketball"]["season"] == {"pts": 90.0, "reb": 35.0, "ast": 18.0, "tpm": 10.0, "opp_pts": 85.0}
+    assert ts["AS Monaco"]["gp"] == 7 and ts["AS Monaco"]["l5"]["opp_pts"] == 90.0
+    elp.attach_team_stats([{"sport": "euroleague", **el["matches"][0]}], ts)

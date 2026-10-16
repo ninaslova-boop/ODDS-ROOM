@@ -165,3 +165,20 @@ def test_app_exact_line_matches_python_model(slate, tmp_path):
     nhl = slate["matches"][3]
     assert lp[5] == pytest.approx(py(nhl, "match", "1", None), abs=1e-3)
     assert lp[6] == pytest.approx(py(nhl, "total", "over", 6.5), abs=1e-3)
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
+def test_export_says_player_data_none_without_current_season(tmp_path):
+    ko = _iso(dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=5))
+    mk = models.basketball_markets(84.0, 80.0, 16.0, 11.0, 164.5, None)
+    m = {"id": "euroleague:1", "sport": "euroleague", "league": "EL", "league_name": "EuroLeague",
+         "home": "Real Madrid", "away": "Olympiacos", "kickoff": ko, "exp": [84.0, 80.0], "sd": [16.0, 11.0],
+         "markets": mk, "odds_raw": {}}
+    for ok, want in ((False, "player data: none → EuroLeague"), (True, "EuroLeague player data: EuroLeague API, sezona E2026")):
+        meta = {"player_data": {"euroleague": {"ok": ok, "season": "E2026", "games": 40,
+                                               "reason": "API ne vrne sezone E2026"}}}
+        fx = tmp_path / f"fx{ok}.json"
+        fx.write_text(json.dumps({"matches": [m], "meta": meta, "players": {"euroleague": []}}), encoding="utf-8")
+        out = json.loads(subprocess.run([NODE, str(ROOT / "tests" / "js" / "harness.js"), str(fx)],
+                                        capture_output=True, text=True, timeout=60).stdout)
+        assert want in out["export"]
