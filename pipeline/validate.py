@@ -20,7 +20,7 @@ import datetime as dt
 import logging
 import math
 
-from . import espn, football, market, models, price_history, soccer_espn, sports
+from . import calibration, espn, football, market, models, price_history, soccer_espn, sports
 from .util import CACHE_DIR, ROOT, RUN, iso, now_utc, read_json, setup_logging, to_float, write_json
 
 log = logging.getLogger("pipeline.validate")
@@ -28,6 +28,16 @@ OUT = ROOT / "data" / "validation.json"
 STEP = 14
 W_GRID = (0.4, 0.6, 0.2, 1.0)
 MIN_GAMES_VALID = 150     # games, and games with market prices
+
+
+SAMPLES: dict[str, list[tuple[str, float, int]]] = {}     # sport -> (date, raw p_model, outcome) for calibration
+
+
+def sample(sport: str, d, probs: dict[str, float], outcome_of: dict[str, int]):
+    """Every outcome of a market (1/X/2, over/under, home/away) as a calibration sample."""
+    rows = SAMPLES.setdefault(sport, [])
+    for k, p in probs.items():
+        rows.append((str(d), p, outcome_of[k]))
 
 
 class Book:
@@ -158,6 +168,9 @@ def football_leagues(today: dt.date, divs=None) -> dict:
                 ex = [(po, ouk["o"] if ouk else None, over, _price(r, "B365C>2.5", "B365>2.5")),
                       (1 - po, ouk["u"] if ouk else None, 1 - over, _price(r, "B365C<2.5", "B365<2.5"))]
                 p3 = {k: pm[k] for k in ("1", "X", "2")}
+                res = _result(hg, ag)
+                sample("football", r["_date"], p3, {k: int(k == res) for k in p3})
+                sample("football", r["_date"], {"o": po, "u": 1 - po}, {"o": over, "u": 1 - over})
                 for b in books.values():
                     b.add(p3, mk, _result(hg, ag), prices, ex)
         out[div] = _entry(football.LEAGUES[div], "football", books, start, end,
@@ -210,6 +223,7 @@ def _us(sport: str, league: str, today: dt.date) -> dict | None:
             if snap:
                 mk, prices = {"1": snap["p"]["1"], "2": snap["p"]["2"]}, snap["prices"]
             win = "1" if g["hc"] > g["ac"] else "2"
+            sample(sport, g["date"], {"1": p1, "2": 1 - p1}, {"1": int(win == "1"), "2": int(win == "2")})
             for b in books.values():
                 b.add({"1": p1, "2": 1 - p1}, mk, win, prices)
     if ph:
@@ -252,6 +266,7 @@ def euroleague(today: dt.date) -> dict | None:
                 continue
             ph, pa = r.expected(g["home"], g["away"])
             p1 = models.norm_cdf((ph - pa) / r.sd_margin)
+            sample("euroleague", g["date"], {"1": p1, "2": 1 - p1}, {"1": int(g["hc"] > g["ac"]), "2": int(g["hc"] < g["ac"])})
             snap = ph.get(f"euroleague:{g['id']}")
             mk, prices = ({"1": snap["p"]["1"], "2": snap["p"]["2"]}, snap["prices"]) if snap else (None, {})
             for b in books.values():
@@ -312,8 +327,10 @@ def uefa(today: dt.date) -> dict:
             if snap:
                 mk = {k: snap["p"][k] for k in ("1", "X", "2")}
                 prices = {k: snap["prices"].get(k) for k in ("1", "X", "2")}
+            res = _result(x["hc"], x["ac"])
+            sample("football", x["date"], {k: pm[k] for k in ("1", "X", "2")}, {k: int(k == res) for k in ("1", "X", "2")})
             for b in books[code].values():
-                b.add({k: pm[k] for k in ("1", "X", "2")}, mk, _result(x["hc"], x["ac"]), prices)
+                b.add({k: pm[k] for k in ("1", "X", "2")}, mk, res, prices)
     out = {}
     for code, bk in books.items():
         name = soccer_espn.COMPETITIONS[code][1]
@@ -349,6 +366,14 @@ def main(argv=None):
         except Exception as e:  # noqa: BLE001
             log.exception("validate %s: %s", part, e)
         write_json(OUT, {"generated": iso(now_utc()), "step_days": STEP, "competitions": comps}, compact=False)
+    # calibration of p_model per sport: walk-forward samples + live tracked predictions
+    try:
+        log_data = read_json(ROOT / "data" / "picks_log.json", {}) or {}
+        live = calibration.tracked_samples(log_data.get("tracked", []))
+        by_sport = {sp: SAMPLES.get(sp, []) + live.get(sp, []) for sp in set(SAMPLES) | set(live)}
+        calibration.fit_all({sp: v for sp, v in by_sport.items() if sp in SAMPLES}, today)
+    except Exception as e:  # noqa: BLE001
+        log.exception("calibration: %s", e)
     for k, v in comps.items():
         b = v["by_w"][f"{v['prod_w']:g}"]
         log.info("%s: %s games, brier %s (model %s, market %s), picks %s, hit %s vs %s, roi %s",

@@ -10,7 +10,7 @@ import datetime as dt
 import logging
 import traceback
 
-from . import (adjust, availability, checks, euroleague_players, football, goalies, market, odds_api, picks, players,
+from . import (adjust, availability, calibration, checks, euroleague_players, football, goalies, market, odds_api, picks, players,
                price_history, rest, soccer_espn, sports, user_picks)
 from .util import CACHE_DIR, OUT_DIR, ROOT, RUN, iso, now_utc, parse_iso, read_json, setup_logging, write_json
 
@@ -219,6 +219,7 @@ def main(argv=None):
                                        "injury_sources": availability.LAST_COVERAGE, "player_data": player_data,
                                        "market_w": {sp: market.weight(sp, False) for sp in market.W},
                                        "market_w_thin": market.W_THIN,
+                                       "calibration": calibration.summary(),
                                        "errors": errors[:80], "ratings": ratings}, compact=False)
     (CACHE_DIR / "last_mode.txt").write_text(RUN["mode"], encoding="utf-8")
     log.info("done (%s): %d matches, %d errors", RUN["mode"], len(all_matches), len(errors))

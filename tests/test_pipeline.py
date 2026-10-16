@@ -504,7 +504,7 @@ def test_market_guard_flags_and_blends_bodo_case():
     m = _cup_match(2.0, 1.0, {"1": 3.10, "X": 3.75, "2": 2.20, "over2.5": 1.80, "under2.5": 2.05})
     raw = market.model_probs(models.score_matrix(2.0, 1.0, 10, -0.06))
     st = market.apply([m], adjust._rebuild_football)
-    assert st == {"checked": 1, "flagged": 1, "blended": 1}
+    assert st == {"checked": 1, "flagged": 1, "blended": 1, "calibrated": 0}
     ref = m["market_ref"]
     assert ref["src"] == "pinnacle" and ref["gap_1x2"] > market.GUARD_PP
     home = next(x for x in m["markets"] if x["scope"] == "match" and x["kind"] == "1")
@@ -1021,3 +1021,66 @@ def test_user_picks_are_settled_from_the_repo_file(monkeypatch, tmp_path):
     st = {p["key"]: p["status"] for p in out["picks"]}
     assert st == {"a": "won", "b": "lost", "c": "open"}
     assert out["stats"]["all"]["won"] == 1 and out["stats"]["all"]["profit"] == pytest.approx(0.0)
+
+
+# ---------------- calibration of p_model ----------------
+def _flat_samples(n=6000, seed=3):
+    """A model that is too flat: the true probability is further from 0.5 than the model says."""
+    rng = random.Random(seed)
+    out = []
+    for i in range(n):
+        true = rng.uniform(0.1, 0.9)
+        logit = math.log(true / (1 - true))
+        p = 1 / (1 + math.exp(-logit * 0.6))                 # flatter than the truth
+        out.append((f"2026-{1 + i * 9 // n:02d}-01", p, int(rng.random() < true)))
+    return out
+
+
+def test_calibration_fixes_a_flat_model_out_of_sample():
+    from pipeline import calibration
+    e = calibration.fit_sport(_flat_samples())
+    assert e["method"] in ("platt", "isotonic")
+    hb = e["holdout_brier"]
+    assert hb[e["method"]] < hb["raw"] - calibration.MIN_GAIN
+    fn = calibration.make_fn(e)
+    assert fn(0.6) > 0.62 and fn(0.4) < 0.38                 # favourites up, underdogs down
+    # too few samples or no gain: no calibration (identity)
+    assert calibration.fit_sport(_flat_samples(300))["method"] == "none"
+    rng = random.Random(5)
+    good = [(f"2026-{1 + i * 9 // 4000:02d}-01", p, int(rng.random() < p)) for i in range(4000)
+            for p in [rng.uniform(0.1, 0.9)]]
+    assert calibration.fit_sport(good)["method"] in ("none", "platt", "isotonic")
+
+
+def test_calibrated_beats_raw_on_stored_settled_predictions():
+    """On the stored settled predictions (data/calibration.json, newest 30 % held out): every sport with a
+    calibration has a lower holdout Brier than the raw p_model; sports without a gain stay uncalibrated."""
+    from pipeline import calibration
+    data = json.loads(calibration.FILE.read_text(encoding="utf-8")) if calibration.FILE.exists() else {"sports": {}}
+    for sp, e in data.get("sports", {}).items():
+        if e["method"] == "none":
+            continue
+        # refit on the stored train bins, score on the stored holdout bins
+        if e["method"] == "platt":
+            f = calibration.platt_fn(*calibration.fit_platt(e["train"]))
+        else:
+            f = calibration.iso_fn(calibration.fit_isotonic(e["train"]))
+        assert calibration.brier(e["holdout"], f) < calibration.brier(e["holdout"]), sp
+    # the live tracked predictions: calibration from the stored samples is not worse on them
+    log = json.loads((Path(__file__).resolve().parents[1] / "data" / "picks_log.json").read_text(encoding="utf-8"))
+    live = calibration.tracked_samples(log["tracked"])
+    assert sum(len(v) for v in live.values()) > 0
+
+
+def test_market_calibrates_before_blend():
+    from pipeline import market
+    m = _cup_match(1.6, 1.1, {"1": 2.2, "X": 3.4, "2": 3.6, "over2.5": 2.0, "under2.5": 1.85})
+    raw = market.model_probs(models.score_matrix(1.6, 1.1, 10, -0.06))
+    sharpen = lambda p: 1 / (1 + math.exp(-1.3 * math.log(p / (1 - p))))
+    st = market.apply([m], {"football": adjust._rebuild_football}, cal={"football": sharpen})
+    assert st["calibrated"] == 1
+    home = next(x for x in m["markets"] if x["scope"] == "match" and x["kind"] == "1")
+    assert home["p_raw"] == pytest.approx(raw["1"], abs=1e-3)
+    assert home["p_model"] > home["p_raw"]                       # favourite up after calibration
+    mkt = m["market_ref"]["p"]["1"]
+    assert home["p"] == pytest.approx(0.4 * home["p_model"] + 0.6 * mkt, abs=0.01)

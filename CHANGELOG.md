@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026-10-16 – calibration of p_model
+
+**What the data says.** The calibration table in the export pooled only the "yes" side of the tracked markets
+(home win, over, BTTS yes). On the live sample (57 settled football matches) the misses come mostly from goals:
+over 2.5 hit 70 % (model 52 %), draws 14 % (model 25 %). With both sides of every market (over AND under, all of
+1/X/2) a Platt fit on that small live sample does not lower the out-of-sample Brier. So the calibration is fitted
+on the large walk-forward sample of the backtest and used only when it helps on held-out data.
+
+1. **Calibration step before the blend** (`pipeline/calibration.py`): per sport, Platt scaling and isotonic
+   regression on settled predictions (every outcome of a market). Samples: walk-forward predictions of
+   `validate.py` (football 16 leagues + UEFA, NHL, NBA, EuroLeague) + live tracked predictions. Time order:
+   fit on the older 70 %, test on the newest 30 %; the better method is used only when it beats the raw p_model
+   (holdout Brier), then refitted on all samples. Refit weekly with the "Validate models" workflow
+   (`data/calibration.json`). In `market.apply` the model parameters are moved to the calibrated main markets
+   (1X2 / moneyline, main total), then guard and blend use the calibrated p_model. Markets keep `p_raw`
+   (uncalibrated) and `p_model` (calibrated); tracked predictions now store `p_raw` for the next refit.
+2. **Odds bands in the export**: share of today's picks and candidates by odds (< 1.80, 1.80–2.50, 2.50–3.50,
+   > 3.50); "UNDERDOG-HEAVY SLATE" warning when more than 70 % are at 2.50 or more. The calibration status per
+   sport (method, n, holdout Brier raw → calibrated) is in the header.
+3. **Tests**: `test_calibration_fixes_a_flat_model_out_of_sample`, `test_calibrated_beats_raw_on_stored_settled_predictions`,
+   `test_market_calibrates_before_blend`, `test_export_odds_bands_and_underdog_warning`.
+
 ## 2026-10-16 – follow-up review
 
 1. **One-team rule does not reopen the Deportivo bug.** The Odds API event with only one matching team at the

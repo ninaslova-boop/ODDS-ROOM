@@ -194,3 +194,24 @@ def test_export_header_prints_w_per_sport(tmp_path, monkeypatch):
     out = json.loads(subprocess.run([NODE, str(ROOT / "tests" / "js" / "harness.js"), str(fx)],
                                     capture_output=True, text=True, timeout=60).stdout)
     assert "w (utež modela): nogomet 0.4, NHL 0.5, NBA 0.4, Euroliga 0.4; tanek trg (< 4 stavnice): 0.6" in out["export"]
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
+def test_export_odds_bands_and_underdog_warning(tmp_path):
+    ko = _iso(dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=5))
+    ms = []
+    for i, (lh, la, o1, o2) in enumerate([(1.0, 1.6, 4.2, 1.9), (1.1, 1.5, 3.9, 2.0), (1.2, 1.4, 3.3, 2.2), (1.4, 1.2, 2.3, 3.4)]):
+        mk = models.goal_markets(models.score_matrix(lh, la, 10, football.DC_RHO))
+        for x in mk:
+            if x["scope"] == "match" and x["kind"] in ("1", "2"):
+                x["odds"] = o1 if x["kind"] == "1" else o2
+                x["b365"] = x["odds"]
+        ms.append({"id": f"fb:E0:{i}", "sport": "football", "league": "E0", "league_name": "PL", "home": f"H{i}",
+                   "away": f"A{i}", "kickoff": ko, "exp": [lh, la], "markets": mk, "odds_raw": {}})
+    fx = tmp_path / "fx.json"
+    fx.write_text(json.dumps({"matches": ms, "meta": {}}), encoding="utf-8")
+    exp = json.loads(subprocess.run([NODE, str(ROOT / "tests" / "js" / "harness.js"), str(fx)],
+                                    capture_output=True, text=True, timeout=60).stdout)["export"]
+    assert "Kvote pickov in kandidatov" in exp and ">3.50" in exp
+    assert "UNDERDOG-HEAVY SLATE" in exp
+    assert "Kalibracija p_model: še ni" in exp
