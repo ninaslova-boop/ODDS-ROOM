@@ -29,7 +29,9 @@ def person_name(raw: str | None) -> str | None:
     if "," in raw:
         last, first = [x.strip() for x in raw.split(",", 1)]
         raw = f"{first} {last}"
-    return " ".join(w.capitalize() if w.isupper() or w.islower() else w for w in raw.split())
+    def cap(w: str) -> str:
+        return "-".join(x.capitalize() for x in w.split("-")) if w.isupper() or w.islower() else w
+    return " ".join(cap(w) for w in raw.split())
 
 
 def parse_stats(j: dict) -> list[list]:
