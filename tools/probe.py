@@ -64,7 +64,7 @@ if sch:
         if land:
             print("--- landing keys", list(land.keys()))
             if "matchup" in land:
-                shape(land["matchup"], maxd=4)
+                shape(land["matchup"], maxd=3)
         rr = get(f"https://api-web.nhle.com/v1/gamecenter/{gid}/right-rail")
         if rr:
             print("--- right-rail keys", list(rr.keys()))
@@ -84,34 +84,3 @@ for d in (today, today + dt.timedelta(days=1)):
                     print("--- summary", k)
                     shape(sm[k], maxd=3)
         break
-# ---------------- EuroLeague ----------------
-y = today.year if today.month >= 9 else today.year - 1
-for base in ("https://api-live.euroleague.net/v2", "https://feeds.incrowdsports.com/provider/euroleague-feeds/v2"):
-    j = get(f"{base}/competitions/E/seasons/E{y}/games")
-    data = (j or {}).get("data") if isinstance(j, dict) else j
-    if not data:
-        continue
-    fut = [g for g in data if not g.get("played")]
-    past = [g for g in data if g.get("played")]
-    print("EL future", len(fut), "past", len(past))
-    if fut:
-        g = sorted(fut, key=lambda g: g.get("utcDate") or g.get("date"))[0]
-        code = g.get("gameCode")
-        print("next game", code, g.get("utcDate"), g["local"]["club"].get("code"), g["road"]["club"].get("code"))
-        shape(g, maxd=2)
-        for path in (f"{base}/competitions/E/seasons/E{y}/games/{code}",
-                     f"{base}/competitions/E/seasons/E{y}/games/{code}/stats",
-                     f"{base}/competitions/E/seasons/E{y}/clubs/{g['local']['club'].get('code')}/people",
-                     f"https://live.euroleague.net/api/Header?gamecode={code}&seasoncode=E{y}",
-                     f"https://live.euroleague.net/api/Boxscore?gamecode={code}&seasoncode=E{y}"):
-            x = get(path)
-            if x is not None:
-                shape(x, maxd=3)
-    if past:
-        g = sorted(past, key=lambda g: g.get("utcDate") or g.get("date"))[-1]
-        code = g.get("gameCode")
-        x = get(f"{base}/competitions/E/seasons/E{y}/games/{code}/stats")
-        if x is not None:
-            print("--- past game stats")
-            shape(x, maxd=4)
-    break
