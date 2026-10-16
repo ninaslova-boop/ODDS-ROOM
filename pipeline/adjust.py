@@ -15,8 +15,8 @@ from .availability import find_player
 
 log = logging.getLogger("pipeline.adjust")
 
-REPLACE = {"football": 0.45, "nba": 0.55, "nhl": 0.6}   # share of a missing player's output a replacement keeps
-MIN_FACTOR = {"football": 0.72, "nba": 0.85, "nhl": 0.85}
+REPLACE = {"football": 0.45, "nba": 0.55, "euroleague": 0.55, "nhl": 0.6}   # share of a missing player's output a replacement keeps
+MIN_FACTOR = {"football": 0.72, "nba": 0.85, "euroleague": 0.85, "nhl": 0.85}
 SUB_MINUTES = 20
 
 
@@ -118,7 +118,7 @@ def apply(matches: list[dict], player_out: dict[str, list], avail: dict[str, dic
                 if sport == "football":
                     out = (r.get("xg90", 0) + r.get("xa90", 0)) * r.get("avail", 1)
                     regular = r.get("avail", 1) >= 0.5
-                elif sport == "nba":
+                elif sport in ("nba", "euroleague"):
                     out = r.get("pts", 0)
                     regular = r.get("min", 0) >= 15
                 else:
@@ -145,7 +145,7 @@ def apply(matches: list[dict], player_out: dict[str, list], avail: dict[str, dic
                 _rebuild_football(m, lh * fh, la * fa)
             elif sport == "nhl":
                 _rebuild_nhl(m, lh * fh, la * fa)
-            elif sport == "nba" and m.get("sd"):
+            elif sport in ("nba", "euroleague") and m.get("sd"):
                 _rebuild_basketball(m, lh * fh, la * fa)
             m["adj"] = {"factors": factors, "missing": missing_names}
             n_adj += 1

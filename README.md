@@ -19,6 +19,7 @@ Orodja za kanal **The Odds Room**.
 - **Igralci**: nogomet (Understat: streli/90, xG/90, xA/90), NHL (streli na gol, točke), NBA (točke, skoki, podaje).
   Za naslednjo tekmo: verjetnost npr. 1+ strel v okvir, 3+ SOG, več kot X točk.
 - **Postave in poškodbe**: odsotni igralci, potrjene postave (~1 h pred tekmo); model prilagodi moč ekipe in napovedi igralcev.
+- **NHL vratarja**: ocena verjetnega vratarja (največ začetih tekem; na 2. tekmi v 2 dneh pogosto rezervni) in njegova obramba proti povprečju ekipe spremeni gole nasprotnika (največ ±10 %).
 - **Dnevnik**: model sam zabeleži value pick pred tekmo in ga po tekmi zaključi. Profit, ROI, kalibracija.
 - **Za Claude** (gumb zgoraj desno): povzetek izbranega dne (navodilo za analizo, odprti picki, value kandidati,
   model proti trgu, nezanesljivi trgi, postave, poškodbe, igralci, stanje dnevnika). Kopiraj in prilepi v Claude.
@@ -33,7 +34,7 @@ Orodja za kanal **The Odds Room**.
 | Nogomet | Understat | igralci top 5 lig: minute, streli, xG, xA, ključne podaje |
 | NHL | ESPN + NHL stats API | razpored, rezultati, kvote; statistika igralcev in ekip |
 | NBA | ESPN | razpored, rezultati, kvote, box score igralcev, poškodbe |
-| Euroliga | EuroLeague API | razpored in rezultati |
+| Euroliga | EuroLeague API | razpored, rezultati, box score igralcev; odsotnost = stalni igralec izpusti zadnji 2 tekmi |
 | (opcija) | The Odds API | dodatne kvote, če nastaviš ključ `ODDS_API_KEY` |
 | (opcija) | API-Football | poškodbe za vse lige, če nastaviš ključ `API_FOOTBALL_KEY` |
 

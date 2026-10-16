@@ -510,3 +510,87 @@ def test_odds_api_us_reference_for_guard():
     odds_api.us_reference(raw, ev, h2h, totals, {"1": 1.93, "2": 1.97}, {("over", 6.5): 1.94, ("under", 6.5): 1.9})
     assert raw["ml_home"] == 1.93 and raw["ref_src"] == "pinnacle"
     assert raw["total"] == 6.5 and raw["over"] == 1.94
+
+
+# --------------------------------------------------------------------------
+# NHL goalies
+# --------------------------------------------------------------------------
+def _goalie(name, team, gs, shots, saves, pid):
+    return {"goalieFullName": name, "teamAbbrevs": team, "gamesStarted": gs, "shotsAgainst": shots,
+            "saves": saves, "playerId": pid, "savePct": saves / shots if shots else None}
+
+
+def test_goalie_back_to_back_moves_start_to_backup():
+    from pipeline import goalies
+    cur = [_goalie("Star One", "COL", 6, 180, 168, 1), _goalie("Back Up", "COL", 1, 30, 25, 2),
+           _goalie("Other A", "DAL", 4, 120, 108, 3), _goalie("Other B", "DAL", 3, 90, 81, 4)]
+    prev = [_goalie("Star One", "COL", 55, 1600, 1480, 1), _goalie("Back Up", "COL", 25, 700, 620, 2)]
+    teams, lg = goalies.ratings(cur, prev)
+    col = teams["Colorado Avalanche"]
+    assert col[0]["name"] == "Star One" and col[0]["sv"] > col[1]["sv"]
+    assert 0.88 < lg < 0.93
+    rested, b2b = goalies.expect(col, False), goalies.expect(col, True)
+    assert rested["name"] == "Star One" and rested["p"] > 0.6
+    assert b2b["name"] == "Back Up" and b2b["b2b"]
+    # backup in goal: the opponent scores more
+    assert goalies.factor(b2b) > 1.0 > goalies.factor(rested) - 0.02
+    assert goalies.factor(b2b) <= 1 + goalies.MAX_EFFECT
+
+
+def test_goalie_apply_scales_opponent_goals(monkeypatch):
+    from pipeline import goalies
+    cur = [_goalie("Star One", "COL", 6, 180, 168, 1), _goalie("Back Up", "COL", 1, 30, 22, 2),
+           _goalie("Other A", "DAL", 7, 200, 180, 3)]
+    monkeypatch.setattr(goalies, "load", lambda today: (cur, []))
+    hist = [{"home": "Colorado Avalanche", "away": "Utah Mammoth", "hc": 3, "ac": 2, "date": dt.date(2026, 10, 16)}]
+    m = {"id": "nhl:1", "sport": "nhl", "home": "Colorado Avalanche", "away": "Dallas Stars",
+         "kickoff": "2026-10-17T23:00:00Z", "exp": [3.0, 3.0], "markets": []}
+    seen = {}
+    n = goalies.apply([m], dt.date(2026, 10, 17), hist, lambda mm, lh, la: seen.update(lh=lh, la=la))
+    assert n == 1 and m["goalies"]["home"]["b2b"] and m["goalies"]["home"]["name"] == "Back Up"
+    assert seen["la"] > 3.0          # Dallas scores more against the Colorado backup
+
+
+# --------------------------------------------------------------------------
+# EuroLeague players
+# --------------------------------------------------------------------------
+def _el_stats():
+    def pl(code, name, club, secs, pts):
+        return {"player": {"person": {"code": code, "name": name}, "club": {"name": club}, "positionName": "Guard"},
+                "stats": {"timePlayed": secs, "points": pts, "totalRebounds": 3, "assistances": 2, "fieldGoalsMade3": 1}}
+    return {"local": {"players": [pl("1", "ABALDE, ALBERTO", "Real Madrid", 1500, 10), pl("2", "DNP, X", "Real Madrid", 0, 0)]},
+            "road": {"players": [pl("3", "BESSON, HUGO", "LDLC ASVEL Villeurbanne", 992, 16)]}}
+
+
+def test_euroleague_box_parse():
+    from pipeline import euroleague_players as elp
+    assert elp.person_name("ABALDE, ALBERTO") == "Alberto Abalde"
+    lines = elp.parse_stats(_el_stats())
+    assert len(lines) == 2                       # the player with 0 seconds did not play
+    assert lines[0][1] == "Alberto Abalde" and lines[0][2] == "Real Madrid" and lines[0][4] == 25.0
+
+
+def test_euroleague_absence_after_missed_games():
+    from pipeline import euroleague_players as elp
+    box = {"games": {str(i): {"d": f"2026-10-0{i}", "p": [], "t": ["Real Madrid", "Olympiacos"]} for i in range(1, 6)}}
+    rows = [{"name": "A", "team": "Real Madrid", "min": 28.0, "last_date": "2026-10-03"},
+            {"name": "B", "team": "Real Madrid", "min": 25.0, "last_date": "2026-10-02"},
+            {"name": "C", "team": "Real Madrid", "min": 10.0, "last_date": "2026-10-01"},
+            {"name": "D", "team": "Real Madrid", "min": 30.0, "last_date": "2026-10-05"}]
+    out = elp.absences(rows, box)["Real Madrid"]
+    by = {a["name"]: a for a in out}
+    assert by["A"]["status"] == "doubt" and by["B"]["status"] == "out"
+    assert "C" not in by and "D" not in by       # bench player and a player who played
+
+
+def test_availability_collect_uses_extra_absences(monkeypatch):
+    from pipeline import availability
+    monkeypatch.setattr(availability, "fpl_absences", lambda: {})
+    monkeypatch.setattr(availability, "espn_injuries", lambda *a: {})
+    monkeypatch.setattr(availability, "lineups", lambda ms: {})
+    monkeypatch.delenv("API_FOOTBALL_KEY", raising=False)
+    m = {"id": "euroleague:1", "sport": "euroleague", "league": "EL", "home": "Real Madrid", "away": "Olympiacos",
+         "kickoff": "2026-10-17T19:00:00Z"}
+    extra = {"euroleague": {"Real Madrid": [{"name": "A", "status": "out", "chance": 0, "reason": "", "src": "EuroLeague"}]}}
+    out, err = availability.collect([m], dt.date(2026, 10, 17), extra)
+    assert out["euroleague:1"]["absent"]["home"][0]["name"] == "A" and not err
