@@ -16,12 +16,12 @@ Orodja za kanal **The Odds Room**.
   porazdelitev skupnih golov, vsi trgi z verjetnostjo, fer kvoto in prednostjo proti kvoti.
 - **Lestvica**: vsi dogodki (ekipe + igralci), razvrščeni po verjetnosti. Filter po verjetnosti in trgu.
 - **Value**: p_final × povprečna kvota (samo za orientacijo).
-- **bet365**: seznam trgov za preverjanje (min. kvota = 1 / p_final), vnos kvote in linije bet365, PICK / NO PICK, lasten dnevnik v napravi.
+- **bet365**: seznam trgov za preverjanje (min. kvota = 0.97 / (p_final − 0.03)), vnos kvote in linije bet365, PICK / NO PICK, lasten dnevnik v napravi.
 - **Igralci**: nogomet (Understat: streli/90, xG/90, xA/90), NHL (streli na gol, točke), NBA (točke, skoki, podaje).
   Za naslednjo tekmo: verjetnost npr. 1+ strel v okvir, 3+ SOG, več kot X točk.
 - **Postave in poškodbe**: odsotni igralci, potrjene postave (~1 h pred tekmo); model prilagodi moč ekipe in napovedi igralcev.
 - **NHL vratarja**: ocena verjetnega vratarja (največ začetih tekem; na 2. tekmi v 2 dneh pogosto rezervni) in njegova obramba proti povprečju ekipe spremeni gole nasprotnika (največ ±10 %).
-- **Dnevnik**: pick velja, ko je p_final × kvota bet365 > 1.00 (◆ pri ≥ 1.10, brez drugih oznak). Samodejno samo s pravo kvoto bet365 (football-data.co.uk). Profit, ROI, kalibracija vseh ocen in samo pickov, poročilo po w.
+- **Dnevnik**: pick velja, ko je p_final × kvota bet365 > 1 + 0.03 × (kvota − 1) (◆ pri ≥ prag + 0.08, brez drugih oznak, brez zgornje meje kvote). Samodejno samo s pravo kvoto bet365 (football-data.co.uk). Profit, ROI, kalibracija vseh ocen in samo pickov, poročilo po w.
 - **Backtest**: walk-forward po tekmovanjih (Brier, zadetki proti pričakovanim, ROI pri zaključnih kvotah). Tekmovanje brez backtesta je »ni validirano«.
 - **Za Claude** (gumb zgoraj desno): povzetek izbranega dne (navodilo za analizo, odprti picki, value kandidati,
   model proti trgu, nezanesljivi trgi, postave, poškodbe, igralci, stanje dnevnika). Kopiraj in prilepi v Claude.

@@ -131,11 +131,12 @@ def test_app_export_and_bet365_list(slate, tmp_path):
     assert "Verona" not in cand
     assert "fb:I1:x:Verona:Catanzaro" in out["bad"]
     assert not any(r["key"].startswith("fb:I1:") for r in out["b365"])
-    # bet365 list: min odds = 1 / p_final for every row
-    assert out["b365"] and all(abs(r["min"] - round(1 / r["p"], 2)) < 1e-9 for r in out["b365"])
+    # bet365 list: min odds = 0.97 / (p_final - 0.03) for every row
+    assert out["b365"] and all(abs(r["min"] - round(0.97 / (r["p"] - 0.03), 2)) < 1e-9 for r in out["b365"])
     # entered odds: PICK / NO PICK by p_final x odds > 1, exact line 177.5
     ok_over, nba_under = out["rowResult"]
-    assert ok_over["ok"] == (ok_over["p"] * 2.10 > 1)
+    assert ok_over["ok"] == (ok_over["p"] * 2.10 > 1 + 0.03 * (2.10 - 1))
+    assert ok_over["strong"] == (ok_over["p"] * 2.10 >= 1 + 0.03 * 1.10 + 0.08)
     assert nba_under["p"] == pytest.approx(out["lineProb"][0], abs=1e-9)
     # no pick labels in the export
     for word in ("TOTD", "Tip of the Day", "Lockdown", "VALUE PICK", "Bold"):
@@ -200,7 +201,7 @@ def test_export_header_prints_w_per_sport(tmp_path, monkeypatch):
 def test_export_odds_bands_and_underdog_warning(tmp_path):
     ko = _iso(dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=5))
     ms = []
-    for i, (lh, la, o1, o2) in enumerate([(1.0, 1.6, 4.2, 1.9), (1.1, 1.5, 3.9, 2.0), (1.2, 1.4, 3.3, 2.2), (1.4, 1.2, 2.3, 3.4)]):
+    for i, (lh, la, o1, o2) in enumerate([(1.0, 1.6, 5.5, 1.9), (1.1, 1.5, 5.0, 2.0), (1.2, 1.4, 4.4, 2.2), (1.4, 1.2, 2.3, 4.4)]):
         mk = models.goal_markets(models.score_matrix(lh, la, 10, football.DC_RHO))
         for x in mk:
             if x["scope"] == "match" and x["kind"] in ("1", "2"):
@@ -215,3 +216,16 @@ def test_export_odds_bands_and_underdog_warning(tmp_path):
     assert "Kvote pickov in kandidatov" in exp and ">3.50" in exp
     assert "UNDERDOG-HEAVY SLATE" in exp
     assert "Kalibracija p_model: še ni" in exp
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
+def test_app_pick_rule_matches_python_and_export_header(tmp_path):
+    cases = [[0.52, 2.0], [0.515, 2.0], [0.26, 4.0], [0.28, 4.0], [0.30, 4.0], [0.56, 2.0], [0.21, 20.0], [0.5, 1.5]]
+    fx = tmp_path / "fx.json"
+    fx.write_text(json.dumps({"matches": [], "meta": {}, "rule": cases}), encoding="utf-8")
+    out = json.loads(subprocess.run([NODE, str(ROOT / "tests" / "js" / "harness.js"), str(fx)],
+                                    capture_output=True, text=True, timeout=60).stdout)
+    for (p, o), r in zip(cases, out["rule"]):
+        assert r["pick"] == picks.is_pick(p, o) and r["strong"] == picks.is_strong(p, o), (p, o)
+        assert r["thr"] == pytest.approx(picks.threshold(o)) and r["min"] == pytest.approx(picks.min_odds(p))
+    assert "Pravilo picka: p_final × kvota bet365 > 1 + 0.03 × (kvota − 1); ◆ pri ≥ prag + 0.08; min. kvota = 0.97 / (p_final − 0.03); brez zgornje meje kvote" in out["export"]

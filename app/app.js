@@ -31,7 +31,14 @@ const pct = (p, d = 0) => (p == null ? "–" : (p * 100).toFixed(d) + "%");
 const odds = (o) => (o ? o.toFixed(2) : "–");
 const fmtNum = (v, d = 2) => (v == null || isNaN(v) ? "–" : Number(v).toFixed(d));
 const fmtLine = (l) => (l == null ? "" : Number(l).toString());
-const STRONG_EV = 1.10;
+/* pick rule: p_final × odds > threshold = 1 + 0.03 × (odds − 1); ◆ when ≥ threshold + 0.08; no upper odds limit */
+const EDGE_SLOPE = 0.03, STRONG_MARGIN = 0.08;
+const threshold = (o) => 1 + EDGE_SLOPE * (o - 1);
+const isPick = (p, o) => !!o && o > 1 && p * o > threshold(o);
+const isStrong = (p, o) => !!o && o > 1 && p * o >= threshold(o) + STRONG_MARGIN;
+const minOdds = (p) => (p > EDGE_SLOPE ? (1 - EDGE_SLOPE) / (p - EDGE_SLOPE) : null);
+const minOddsTxt = (p) => { const o = minOdds(p); return o == null || o > 1000 ? "–" : o.toFixed(2); };
+const RULE_TXT = "p_final × kvota bet365 > 1 + 0.03 × (kvota − 1); ◆ pri ≥ prag + 0.08; min. kvota = 0.97 / (p_final − 0.03); brez zgornje meje kvote";
 
 /* a match that must not give picks or appear in "reliable" lists */
 function isBad(x) { return !!(x.unreliable || x.mismatch || x.markets.some((m) => m.unreliable)); }
@@ -441,7 +448,7 @@ function resultBar(x) {
 /* best pick of a match: p_final x bet365 > 1 (reliable matches only) */
 function bestValue(x) {
   if (isBad(x)) return null;
-  return x.markets.filter((m) => m.b365 && m.p * m.b365 > 1).sort((a, b) => b.p * b.b365 - a.p * a.b365)[0] || null;
+  return x.markets.filter((m) => isPick(m.p, m.b365)).sort((a, b) => (b.p * b.b365 - threshold(b.b365)) - (a.p * a.b365 - threshold(a.b365)))[0] || null;
 }
 function cardFacts(x) {
   const isBall = x.sport === "nba" || x.sport === "euroleague";
@@ -491,7 +498,7 @@ function matchCard(x) {
     </div>
     ${resultBar(x)}
     <div class="m-facts">${cardFacts(x).map(([l, val]) => `<span><em>${l}</em> <b class="num">${val}</b></span>`).join("")}
-      ${v ? `<span class="m-value" data-tip="p_final ${pfm(v)} · min. kvota ${(1 / v.p).toFixed(2)} · bet365 ${odds(v.b365)}">PICK ${esc(slLabel(v, x))} @ ${odds(v.b365)} <b>${(v.p * v.b365).toFixed(2)}</b>${v.p * v.b365 >= STRONG_EV ? " ◆" : ""}</span>` : ""}
+      ${v ? `<span class="m-value" data-tip="p_final ${pfm(v)} · min. kvota ${minOddsTxt(v.p)} · bet365 ${odds(v.b365)} · prag ${threshold(v.b365).toFixed(3)}">PICK ${esc(slLabel(v, x))} @ ${odds(v.b365)} <b>${(v.p * v.b365).toFixed(2)}</b>${isStrong(v.p, v.b365) ? " ◆" : ""}</span>` : ""}
     </div>
     ${S.open.has(x.id) ? matchDetails(x) : ""}
   </article>`;
@@ -809,9 +816,9 @@ function rowResult(r, inp) {
   const line = inp.l === "" || inp.l == null ? r.line : parseFloat(String(inp.l).replace(",", "."));
   const { p, pm } = rowProb(r, line);
   if (!o || o <= 1) return { p, pm, line, html: `<span class="faint">vnesi kvoto</span>`, ok: false };
-  const ev = p * o, ok = ev > 1;
-  return { p, pm, line, o, ev, ok, strong: ev >= STRONG_EV,
-    html: `<b class="${ok ? "g" : "red"}">${ok ? "PICK" : "NO PICK"}</b>${ev >= STRONG_EV ? ` <span data-tip="p_final × kvota ≥ 1.10">◆</span>` : ""} <span class="num faint">${ev.toFixed(3)}</span>` };
+  const ev = p * o, thr = threshold(o), ok = isPick(p, o), strong = isStrong(p, o);
+  return { p, pm, line, o, ev, ok, strong, thr,
+    html: `<b class="${ok ? "g" : "red"}">${ok ? "PICK" : "NO PICK"}</b>${strong ? ` <span data-tip="p_final × kvota ≥ prag + 0.08">◆</span>` : ""} <span class="num faint" data-tip="p_final × kvota / prag">${ev.toFixed(3)} / ${thr.toFixed(3)}</span>` };
 }
 function viewB365(v) {
   const B = S.b365;
@@ -820,7 +827,7 @@ function viewB365(v) {
   const logged = new Set(myPicks().map((p) => p.key));
   const lineCell = (r) => r.line == null ? "" : `<input class="b-in" data-l="${esc(r.key)}" inputmode="decimal" value="${esc(inputs[r.key]?.l ?? "")}" placeholder="${fmtLine(r.line)}" aria-label="bet365 linija">`;
   v.innerHTML = `<h2>bet365: kaj preveriti</h2>
-    <p class="section-note">bet365 nima javnega API-ja, zato kvote preveriš sam. <b>Min. kvota</b> = 1 / p_final. Pick velja, ko je p_final × kvota bet365 &gt; 1.00 (◆ pri ≥ 1.10). Če ima bet365 drugo linijo, jo vpiši: p se izračuna za točno to linijo iz porazdelitve modela, že zmešane s trgom. Brez nezanesljivih tekem in tekem z DATA MISMATCH. Vnosi in tvoj dnevnik so shranjeni samo v tej napravi.</p>
+    <p class="section-note">bet365 nima javnega API-ja, zato kvote preveriš sam. <b>Min. kvota</b> = 0.97 / (p_final − 0.03). Pick velja, ko je p_final × kvota bet365 &gt; 1 + 0.03 × (kvota − 1): višja kvota zahteva večjo prednost. ◆ pri ≥ prag + 0.08. Zgornje meje kvote ni. Če ima bet365 drugo linijo, jo vpiši: p se izračuna za točno to linijo iz porazdelitve modela, že zmešane s trgom. Brez nezanesljivih tekem in tekem z DATA MISMATCH. Vnosi in tvoj dnevnik so shranjeni samo v tej napravi.</p>
     <div class="filters">
       <label>Dan<select id="bDay">${[["today", "Danes"], ["tomorrow", "Jutri"], ["all", "Vsi"]].map(([k, l]) => `<option value="${k}" ${B.day === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>
       <label>Min. p<select id="bMin">${[0.2, 0.35, 0.5].map((k) => `<option value="${k}" ${B.minP === k ? "selected" : ""}>${pct(k)}</option>`).join("")}</select></label>
@@ -833,7 +840,7 @@ function viewB365(v) {
         return `<tr data-row="${esc(r.key)}"><td class="muted" style="white-space:nowrap">${fmtTime(r.x.kickoff)}</td>
         <td>${SPORTS[r.x.sport]?.icon || ""} ${esc(r.x.home)} – ${esc(r.x.away)} <span class="faint">${esc(r.x.league_name)}</span>${validTag(r.x)}</td>
         <td>${esc(r.label)}</td><td class="r num" data-pf>${pct(res.p, 1)} <span class="faint">(${pct(res.pm)})</span></td>
-        <td class="r num" data-min><span class="faint">min.</span> <b>${(1 / res.p).toFixed(2)}</b></td>
+        <td class="r num" data-min><span class="faint">min.</span> <b>${minOddsTxt(res.p)}</b></td>
         <td><input class="b-in" data-o="${esc(r.key)}" inputmode="decimal" value="${esc(inputs[r.key]?.o ?? (r.b365 ? r.b365 : ""))}" placeholder="npr. 1.95" aria-label="bet365 kvota">${r.b365 && inputs[r.key]?.o == null ? ` <span class="faint" data-tip="Kvota bet365 iz football-data.co.uk. Preveri, ali še velja.">B365</span>` : ""}</td>
         <td>${lineCell(r)}</td><td data-res>${res.html}</td>
         <td><button class="btn s" data-log="${esc(r.key)}" ${res.ok && !logged.has(r.key) ? "" : "disabled"}>${logged.has(r.key) ? "Zabeleženo" : "Zabeleži"}</button></td></tr>`; }).join("")}
@@ -846,7 +853,7 @@ function viewB365(v) {
     const inp = lsGet(LS_IN, {})[key] || {};
     const res = rowResult(r, { o: inp.o ?? r.b365 ?? "", l: inp.l });
     tr.querySelector("[data-pf]").innerHTML = `${pct(res.p, 1)} <span class="faint">(${pct(res.pm)})</span>`;
-    tr.querySelector("[data-min]").innerHTML = `<span class="faint">min.</span> <b>${(1 / res.p).toFixed(2)}</b>`;
+    tr.querySelector("[data-min]").innerHTML = `<span class="faint">min.</span> <b>${minOddsTxt(res.p)}</b>`;
     tr.querySelector("[data-res]").innerHTML = res.html;
     const btn = tr.querySelector("[data-log]");
     if (!logged.has(key)) btn.disabled = !res.ok;
@@ -979,7 +986,7 @@ function viewBacktest(v) {
       <td class="faint" style="font-size:12px">w=${b.w} · ${esc(e.odds_src)}${e.note ? `<br>${esc(e.note)}` : ""}</td></tr>`;
   }).join("");
   v.innerHTML = `<h2>Backtest po tekmovanjih</h2>
-    <p class="section-note">Walk-forward: model se vsakih 14 dni ponovno nauči samo iz preteklih tekem in napove naslednjih 14 dni. p_final = w × model + (1 − w) × trg brez marže (zaključne kvote). Pick = najboljši izid s p_final × kvota &gt; 1. Brier: nižje je bolje (model / p_final / trg). Zadetki: dejansko / pričakovano. ROI pri zaključnih kvotah. Tekmovanje brez backtesta, z manj kot 150 tekmami ali brez zgodovinskih kvot je označeno <b>ni validirano</b>. Podrži na ROI za druge w.</p>
+    <p class="section-note">Walk-forward: model se vsakih 14 dni ponovno nauči samo iz preteklih tekem in napove naslednjih 14 dni. p_final = w × model + (1 − w) × trg brez marže (zaključne kvote). Pick = najboljši izid s p_final × kvota &gt; 1 + 0.03 × (kvota − 1). Brier: nižje je bolje (model / p_final / trg). Zadetki: dejansko / pričakovano. ROI pri zaključnih kvotah. Tekmovanje brez backtesta, z manj kot 150 tekmami ali brez zgodovinskih kvot je označeno <b>ni validirano</b>. Podrži na ROI za druge w.</p>
     <div class="card scroll" style="padding:4px 6px"><table class="tbl stack">
       <tr><th>Tekmovanje</th><th class="r">Tekme</th><th class="r">Brier model</th><th class="r">Brier p_final</th><th class="r">Brier trg</th><th class="r">Picki</th><th class="r">Zadetki / pričak.</th><th class="r">ROI</th><th>Kvote</th></tr>
       ${rows}
@@ -997,7 +1004,7 @@ function viewLog(v) {
   const statusBadge = (s) => ({ won: `<span class="badge">ZADETEK</span>`, lost: `<span class="badge red">ZGREŠEN</span>`, push: `<span class="badge grey">VRAČILO</span>`, void: `<span class="badge grey">RAZVELJ.</span>`, open: `<span class="badge amber">ODPRT</span>` }[s] || s);
   v.innerHTML = `<h2>Model shadow log (samodejni picki)</h2>
     <div class="warn-box">To ni uradni dnevnik. Uradni zapis so tvoji picki s kvoto bet365 (zavihek bet365 → Uradni dnevnik). Tukaj model sam beleži, kaj bi izbral.</div>
-    <p class="section-note">Samodejni dnevnik: en pick na tekmo, ko je p_final × kvota bet365 &gt; 1.00 (kvota bet365 iz football-data.co.uk; povprečje stavnic se nikoli ne shrani kot cena). ◆ = p × kvota ≥ 1.10. Nezanesljive tekme in DATA MISMATCH ne dajo picka. Starejši picki (pred 16. 10. 2026) so po starem pravilu. Nič se ne briše. Vložek 1 enota. Svoje picke z vnesenimi kvotami bet365 vodiš v zavihku bet365.</p>
+    <p class="section-note">Samodejni dnevnik: en pick na tekmo, ko je p_final × kvota bet365 &gt; 1 + 0.03 × (kvota − 1) (kvota bet365 iz football-data.co.uk; povprečje stavnic se nikoli ne shrani kot cena). ◆ = p × kvota ≥ prag + 0.08. Picki pred 17. 10. 2026 so po pravilu p × kvota &gt; 1. Nezanesljive tekme in DATA MISMATCH ne dajo picka. Starejši picki (pred 16. 10. 2026) so po starem pravilu. Nič se ne briše. Vložek 1 enota. Svoje picke z vnesenimi kvotami bet365 vodiš v zavihku bet365.</p>
     <div class="kpis">
       <div class="kpi"><div class="l">Picki</div><div class="v">${k.n ?? 0}</div><div class="faint" style="font-size:12px">${k.open ?? 0} odprtih</div></div>
       <div class="kpi"><div class="l">Z – P – V</div><div class="v">${k.won ?? 0}–${k.lost ?? 0}–${k.push ?? 0}</div></div>
@@ -1071,7 +1078,7 @@ function calibChart(buckets) {
 function evKey(e) {
   return e.kind === "team" ? `t|${e.match.id}|${e.m.stat}|${e.m.scope}|${e.m.kind}|${e.m.line}` : `p|${e.match.id}|${e.player.name}|${e.prop.label}`;
 }
-/* no pick labels or tiers: one pick format (◆ when p_final x bet365 >= 1.10), a multi-leg format and the trap check */
+/* no pick labels or tiers: one pick format (◆ when p_final x bet365 >= threshold + 0.08), a multi-leg format and the trap check */
 const TYPES = {
   pick: { name: "Pick", head: "🎯 PICK" },
   acca: { name: "Acca / Builder", head: "🧱 ACCA" },
@@ -1159,9 +1166,9 @@ function buildPost(list, type, trap) {
   const x = e.match;
   const b365 = e.m?.b365;
   const ev = b365 ? e.p * b365 : null;
-  const head = ev != null && ev >= STRONG_EV ? `${t.head} ◆` : t.head;
-  const price = b365 ? `bet365: ${odds(b365)} · p × odds ${ev.toFixed(2)}${ev > 1 ? "" : " → no pick at this price"}`
-    : `Min. odds: ${(1 / e.p).toFixed(2)} (check bet365)`;
+  const head = b365 && isStrong(e.p, b365) ? `${t.head} ◆` : t.head;
+  const price = b365 ? `bet365: ${odds(b365)} · p × odds ${ev.toFixed(2)}${isPick(e.p, b365) ? "" : " → no pick at this price"}`
+    : `Min. odds: ${minOddsTxt(e.p)} (check bet365)`;
   return `${head}\n${SPORTS[x.sport].en} ${x.home} v ${x.away}\n🏆 ${x.league_name} · ${when(x.kickoff)}\n\n` +
     `Pick: ${evEn(e)}\n${price}\nEst. %: ${pct(e.p)}\n\nThe read:\n${whyLines(e).map((l) => "• " + l).join("\n")}\n` + foot;
 }
@@ -1193,7 +1200,7 @@ function viewPosts(v) {
     <div style="flex:1"><div>${SPORTS[e.sport]?.icon || ""} ${esc(e.title)}</div><div class="faint" style="font-size:12px">${esc(e.sub)} · ${fmtTime(e.kickoff)}</div></div>
     <div class="r num"><b class="g">${pct(e.p)}</b>${e.odds ? `<div class="faint" style="font-size:12px">@ ${odds(e.odds)}</div>` : ""}</div></div>`; };
   v.innerHTML = `<h2>Generator objav</h2>
-    <p class="section-note">Izberi en dogodek (ali več za Acca / Builder). Brez oznak in stopenj: samo Pick, ◆ pri p_final × bet365 ≥ 1.10. Besedilo je v angleščini.</p>
+    <p class="section-note">Izberi en dogodek (ali več za Acca / Builder). Brez oznak in stopenj: samo Pick, ◆ pri p_final × bet365 ≥ prag + 0.08 (prag = 1 + 0.03 × (kvota − 1)). Besedilo je v angleščini.</p>
     <div class="grid2">
       <div>
         <h3>Kandidati (zanesljive tekme)</h3><div class="pick-list">${vals.map(item).join("") || `<div class="empty" style="padding:16px">Ni kandidatov.</div>`}</div>
@@ -1286,7 +1293,7 @@ function claudeExport(day, sport, withPlayers, allMatches) {
   }
   L.push("");
   L.push("## Navodilo");
-  L.push("Si analitik športnih stav. Spodaj so ocene modela The Odds Room. Pravilo picka: p_final × kvota bet365 > 1.00 (◆ = ≥ 1.10). Brez drugih oznak.");
+  L.push(`Si analitik športnih stav. Spodaj so ocene modela The Odds Room. Pravilo picka: ${RULE_TXT}. Brez drugih oznak.`);
   L.push("p_final = w × model + (1 − w) × trg brez marže (Pinnacle ali povprečje stavnic; tanek trg < 4 stavnice: w = 0.6). V oklepaju je čisti model.");
   L.push("Za vsak pick in kandidata: 1) ali je razlika do trga realna, 2) novice, postave, motivacija, ki jih model ne vidi, 3) igraj / manjši vložek / preskoči z enim stavkom.");
   L.push("Tekme NEZANESLJIVO in DATA MISMATCH niso za stave. Tekmovanja NOT VALIDATED jemlji previdno. Bodi kritičen; brez garancij.");
@@ -1312,7 +1319,7 @@ function claudeExport(day, sport, withPlayers, allMatches) {
     L.push("|---|---|---|---|---|---|---|---|---|");
     for (const p of picks.sort((a, b) => a.kickoff.localeCompare(b.kickoff))) {
       const evv = p.p * p.odds;
-      L.push(`| ${hm(p.kickoff)} | ${p.home} – ${p.away} (${p.league || ""}) | ${slLabel(p, p)}${evv >= STRONG_EV ? " ◆" : ""} | ${pct(p.p)}${p.p_model != null ? ` (${pct(p.p_model)})` : ""} | ${odds(p.odds)} | ${p.odds_src || "povprečje (staro pravilo)"} | ${evv.toFixed(3)} | ${p.p_now != null ? pct(p.p_now) : "–"} | ${p.alert ? (p.alert.level === "red" ? "RDEČE: " : "RUMENO: ") + p.alert.text : ""} |`);
+      L.push(`| ${hm(p.kickoff)} | ${p.home} – ${p.away} (${p.league || ""}) | ${slLabel(p, p)}${isStrong(p.p, p.odds) ? " ◆" : ""} | ${pct(p.p)}${p.p_model != null ? ` (${pct(p.p_model)})` : ""} | ${odds(p.odds)} | ${p.odds_src || "povprečje (staro pravilo)"} | ${evv.toFixed(3)} | ${p.p_now != null ? pct(p.p_now) : "–"} | ${p.alert ? (p.alert.level === "red" ? "RDEČE: " : "RUMENO: ") + p.alert.text : ""} |`);
     }
     for (const p of myOpen) L.push(`| ${hm(p.kickoff)} | ${p.home} – ${p.away} (${p.league || ""}) | ${p.label}${p.strong ? " ◆" : ""} | ${pct(p.p_final)} (${pct(p.p_model)}) | ${odds(p.odds)} | bet365 (moj vnos) | ${p.ev.toFixed(3)} | – | |`);
   } else L.push("Ni odprtih pickov.");
@@ -1324,16 +1331,16 @@ function claudeExport(day, sport, withPlayers, allMatches) {
     if (isBad(x)) continue;
     for (const m of x.markets) {
       const price = m.b365 || m.odds;
-      if (!price || m.odds_assumed || m.p < 0.3 || m.p * price <= 1) continue;
+      if (!price || m.odds_assumed || m.p < 0.3 || !isPick(m.p, price)) continue;
       cand.push({ x, m, price, ev: m.p * price });
     }
   }
-  cand.sort((a, b) => b.ev - a.ev);
-  L.push(`## Za preveriti na bet365 (zanesljive tekme, p_final × kvota > 1; ${Math.min(30, cand.length)})`);
+  cand.sort((a, b) => (b.ev - threshold(b.price)) - (a.ev - threshold(a.price)));
+  L.push(`## Za preveriti na bet365 (zanesljive tekme, p_final × kvota > 1 + 0.03 × (kvota − 1); ${Math.min(30, cand.length)})`);
   if (cand.length) {
-    L.push("| čas | tekma | trg | p_final (model) | min. kvota | kvota | vir kvote | p × kvota | trg brez marže |");
+    L.push("| čas | tekma | trg | p_final (model) | min. kvota | kvota | vir kvote | p × kvota / prag | trg brez marže |");
     L.push("|---|---|---|---|---|---|---|---|---|");
-    for (const { x, m, price, ev } of cand.slice(0, 30)) L.push(`| ${hm(x.kickoff)} | ${x.home} – ${x.away} (${x.league_name})${isValidated(x) ? "" : " [not validated]"} | ${slLabel(m, x)} | ${pfm(m)} | ${(1 / m.p).toFixed(2)} | ${odds(price)} | ${m.b365 ? "bet365" : "povprečje – preveri bet365"} | ${ev.toFixed(3)}${ev >= STRONG_EV ? " ◆" : ""} | ${refFor(x, m)} |`);
+    for (const { x, m, price, ev } of cand.slice(0, 30)) L.push(`| ${hm(x.kickoff)} | ${x.home} – ${x.away} (${x.league_name})${isValidated(x) ? "" : " [not validated]"} | ${slLabel(m, x)} | ${pfm(m)} | ${minOddsTxt(m.p)} | ${odds(price)} | ${m.b365 ? "bet365" : "povprečje – preveri bet365"} | ${ev.toFixed(3)} / ${threshold(price).toFixed(3)}${isStrong(m.p, price) ? " ◆" : ""} | ${refFor(x, m)} |`);
   } else L.push("Ni kandidatov.");
   const bandPrices = cand.slice(0, 30).map((c) => c.price).concat(picks.map((p) => p.odds)).concat(myOpen.map((p) => p.odds));
   const bands = oddsBands(bandPrices);
@@ -1379,7 +1386,7 @@ function claudeExport(day, sport, withPlayers, allMatches) {
     pp.sort((a, b) => b.pr.p - a.pr.p);
     L.push(`## Igralci: dogodki 55–85 % (top ${Math.min(25, pp.length)}; brez poškodovanih, kaznovanih in vprašljivih)`);
     const avgTxt = (pl, pr) => pl.l5 && pl[pr.stat] != null ? ` · sezona ${fmtNum(pl[pr.stat], 1)}, L5 ${fmtNum(pl.l5[pr.stat], 1)} (${pl.gp} tekem)` : "";
-    for (const { pl, pr, x } of pp.slice(0, 25)) L.push(`- ${pl.name} (${pl.team}, ${pl.next.home ? "doma" : "v gosteh"} vs ${pl.next.opp}, ${hm(x.kickoff)}): ${pr.label} ${pct(pr.p)}, min. kvota ${(1 / pr.p).toFixed(2)}${avgTxt(pl, pr)}${(inj[injKey(x)] || []).length ? "" : " [injury data: none]"}`);
+    for (const { pl, pr, x } of pp.slice(0, 25)) L.push(`- ${pl.name} (${pl.team}, ${pl.next.home ? "doma" : "v gosteh"} vs ${pl.next.opp}, ${hm(x.kickoff)}): ${pr.label} ${pct(pr.p)}, min. kvota ${minOddsTxt(pr.p)}${avgTxt(pl, pr)}${(inj[injKey(x)] || []).length ? "" : " [injury data: none]"}`);
     if (spOk("euroleague") && ms.some((x) => x.sport === "euroleague") && elPd?.ok === false) L.push("- EuroLeague: player data: none");
     const few = (S.data.players.euroleague || []).filter((pl) => pl.props_note && pl.next && S.data.byId[pl.next.match] && inDay(S.data.byId[pl.next.match].kickoff));
     if (spOk("euroleague") && few.length) L.push(`- EuroLeague: ${few.length} igralcev ima premalo tekem (< 5) – too few games, brez verjetnosti: ${few.slice(0, 10).map((pl) => pl.name).join(", ")}${few.length > 10 ? " …" : ""}`);
@@ -1427,7 +1434,7 @@ function matchLine(x, hm) {
     parts.push(`točke dane–prejete sezona: ${t("home")} | ${t("away")}`);
   }
   const v = bestValue(x);
-  if (v) parts.push(`PICK: ${slLabel(v, x)} @ bet365 ${odds(v.b365)} (p ${pfm(v)}, p×kvota ${(v.p * v.b365).toFixed(3)}${v.p * v.b365 >= STRONG_EV ? " ◆" : ""})`);
+  if (v) parts.push(`PICK: ${slLabel(v, x)} @ bet365 ${odds(v.b365)} (p ${pfm(v)}, p×kvota ${(v.p * v.b365).toFixed(3)} / prag ${threshold(v.b365).toFixed(3)}${isStrong(v.p, v.b365) ? " ◆" : ""})`);
   if (x.mismatch) parts.push(`DATA MISMATCH: ${x.mismatch}`);
   else if (isBad(x)) parts.push("NEZANESLJIVO");
   return "- " + parts.join(" · ");

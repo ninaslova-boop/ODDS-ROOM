@@ -192,7 +192,7 @@ def main(argv=None):
                 mk["edge"] = round(mk["p"] * mk["odds"] - 1, 4)
             if mk.get("b365"):
                 mk["ev"] = round(mk["p"] * mk["b365"], 4)
-                mk["strong"] = mk["ev"] >= picks.STRONG_EV
+                mk["strong"] = picks.is_strong(mk["p"], mk["b365"])
     all_matches.sort(key=lambda m: m["kickoff"])
 
     if RUN["mode"] == "full":

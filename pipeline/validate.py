@@ -5,7 +5,7 @@ predicts the next STEP days. For each game:
 * p_model from the production model, p_market = closing price without margin
   (football: Pinnacle closing, else the closing average; other sports: the ESPN price),
 * p_final = w * p_model + (1 - w) * p_market, for several w (production w first),
-* pick rule of the app: the best outcome with p_final x price > 1 (one per game).
+* pick rule of the app: the best outcome with p_final x price > 1 + 0.03 x (price - 1) (one per game).
   Price = bet365 closing price for football (football-data.co.uk B365C columns, else B365);
   NHL / NBA / UEFA: the ESPN price (no bet365 history exists for them). EuroLeague: no odds.
 
@@ -20,7 +20,7 @@ import datetime as dt
 import logging
 import math
 
-from . import calibration, espn, football, market, models, price_history, soccer_espn, sports
+from . import calibration, espn, picks, football, market, models, price_history, soccer_espn, sports
 from .util import CACHE_DIR, ROOT, RUN, iso, now_utc, read_json, setup_logging, to_float, write_json
 
 log = logging.getLogger("pipeline.validate")
@@ -66,16 +66,16 @@ class Book:
             if price:
                 p = self.w * pm + (1 - self.w) * pk if pk is not None else pm
                 cands.append((p * price, p, price, won))
-        cands = [c for c in cands if c[0] > 1.0]
+        cands = [c for c in cands if picks.is_pick(c[1], c[2])]
         if cands:
-            _, p, price, won = max(cands)
+            _, p, price, won = max(cands, key=lambda c: c[0] - picks.threshold(c[2]))
             self.picks.append((p, price, won))
 
     def summary(self) -> dict:
         n_p = len(self.picks)
         won = sum(x[2] for x in self.picks)
         profit = sum((x[1] - 1) if x[2] else -1 for x in self.picks)
-        strong = [x for x in self.picks if x[0] * x[1] >= 1.10]
+        strong = [x for x in self.picks if picks.is_strong(x[0], x[1])]
         return {
             "w": self.w, "games": self.n, "games_with_market": self.n_mkt,
             "brier_model": round(self.br_model / self.n, 4) if self.n else None,
