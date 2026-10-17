@@ -179,11 +179,25 @@ def test_picks_flow():
 
 
 def test_pick_rule_and_strong_flag():
-    assert picks.is_pick(0.5, 2.01) and not picks.is_pick(0.5, 2.0) and not picks.is_pick(0.9, None)
+    # threshold = 1 + 0.03 * (odds - 1): 1.00 -> 1.0, 2.0 -> 1.03, 4.0 -> 1.09, 6.0 -> 1.15
+    assert picks.threshold(2.0) == pytest.approx(1.03) and picks.threshold(6.0) == pytest.approx(1.15)
+    assert picks.is_pick(0.52, 2.0) and not picks.is_pick(0.515, 2.0)        # 1.04 > 1.03; 1.03 is not > 1.03
+    assert not picks.is_pick(0.26, 4.0)          # 1.04 > 1 but below 1.09: the old rule would pick it
+    assert picks.is_pick(0.28, 4.0)              # 1.12 > 1.09
+    assert not picks.is_pick(0.9, None) and picks.is_pick(0.21, 20.0)        # no upper odds limit (4.2 > 1.57)
+    # strong: p x odds >= threshold + 0.08
+    assert picks.is_strong(0.56, 2.0) and not picks.is_strong(0.55, 2.0)    # 1.12 >= 1.11; 1.10 < 1.11
+    assert picks.is_strong(0.30, 4.0) and not picks.is_strong(0.29, 4.0)    # 1.20 >= 1.17; 1.16 < 1.17
+    # min odds = 0.97 / (p - 0.03): exactly at the threshold
+    for p in (0.2, 0.35, 0.5, 0.7):
+        o = picks.min_odds(p)
+        assert p * o == pytest.approx(picks.threshold(o)) and o == pytest.approx(0.97 / (p - 0.03))
+    assert picks.min_odds(0.03) is None
     m = _pick_match("2030-01-01T00:00:00Z")
-    m["markets"][1]["b365"] = 2.5          # 0.45 x 2.5 = 1.125
+    m["markets"][1]["b365"] = 2.5          # 0.45 x 2.5 = 1.125 >= 1.045 + 0.08
     c = picks.candidates(m)
     assert c[0]["kind"] == "1" and c[0]["strong"] and c[1]["kind"] == "over" and not c[1]["strong"]
+    assert c[0]["threshold"] == pytest.approx(1.045)
     # an average price is never used: without bet365 there is no pick
     for x in m["markets"]:
         x.pop("b365", None)

@@ -1,11 +1,14 @@
 """Pick log: every pick is logged before kick-off, then settled from results.
 
-Pick rule (all sports): a pick is valid when p_final x bet365 odds > 1.00.
+Pick rule (all sports): a pick is valid when p_final x bet365 odds > threshold(odds) = 1 + 0.03 x (odds - 1).
+The bar rises with the odds: the longer the price, the more value is needed (the model is wrong most often
+on long shots). Min. odds for a pick = 0.97 / (p_final - 0.03).
 * p_final = the probability after the shrink to the market (market.py); p_model is kept too.
 * Only real bet365 prices are used (football-data.co.uk B365 columns, or bet365 in The Odds API).
   An average of books is never stored as the pick price. Without a bet365 price there is no
   automatic pick; the user enters bet365 odds in the app (bet365 list).
-* "strong" = p_final x odds >= STRONG_EV. There are no other labels or tiers.
+* "strong" = p_final x odds >= threshold(odds) + STRONG_MARGIN. There are no other labels or tiers.
+  No upper odds limit.
 * A match that is unreliable (model-market gap on a main market) or a DATA MISMATCH never
   creates a pick. The check runs again at logging time.
 
@@ -26,7 +29,8 @@ from .util import iso, now_utc, parse_iso
 log = logging.getLogger("pipeline.picks")
 LOCAL = ZoneInfo("Europe/Ljubljana")
 
-STRONG_EV = 1.10
+EDGE_SLOPE = 0.03        # threshold = 1 + EDGE_SLOPE * (odds - 1)
+STRONG_MARGIN = 0.08     # strong flag: p x odds >= threshold + STRONG_MARGIN
 LOG_WINDOW_H = 30
 VOID_AFTER_DAYS = 10
 MAX_TRACKED = 8000
@@ -44,8 +48,21 @@ def market_id(match_id: str, m: dict) -> str:
     return f"{match_id}|{m['stat']}|{m['scope']}|{m['kind']}|{m.get('line')}"
 
 
+def threshold(odds: float) -> float:
+    return 1 + EDGE_SLOPE * (odds - 1)
+
+
 def is_pick(p_final: float, odds: float | None) -> bool:
-    return bool(odds) and p_final * odds > 1.0
+    return bool(odds) and odds > 1 and p_final * odds > threshold(odds)
+
+
+def is_strong(p_final: float, odds: float | None) -> bool:
+    return bool(odds) and odds > 1 and p_final * odds >= threshold(odds) + STRONG_MARGIN
+
+
+def min_odds(p_final: float) -> float | None:
+    """Lowest price that makes a pick: p * o = 1 + 0.03 * (o - 1)  <=>  o = 0.97 / (p - 0.03)."""
+    return (1 - EDGE_SLOPE) / (p_final - EDGE_SLOPE) if p_final > EDGE_SLOPE else None
 
 
 PUBLISHABLE_KINDS = {"match": ("1", "X", "2"), "total": ("over", "under"), "spread": ("home", "away"),
@@ -72,8 +89,9 @@ def candidates(match: dict) -> list[dict]:
         if match["sport"] == "nhl" and m["scope"] == "match" and m["kind"] == "X":
             continue
         e = m["p"] * o
-        out.append({**m, "odds": o, "ev": round(e, 4), "edge": round(e - 1, 4), "strong": e >= STRONG_EV})
-    out.sort(key=lambda m: -m["ev"])
+        out.append({**m, "odds": o, "ev": round(e, 4), "edge": round(e - 1, 4), "strong": is_strong(m["p"], o),
+                    "threshold": round(threshold(o), 4)})
+    out.sort(key=lambda m: -(m["ev"] - m["threshold"]))
     return out
 
 

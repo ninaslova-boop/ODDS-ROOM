@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-10-17 – new pick rule: the bar rises with the odds
+- A pick is valid when **p_final × bet365 odds > 1 + 0.03 × (odds − 1)** (was: > 1.00). At odds 2.00 the bar is
+  1.03, at 4.00 it is 1.09, at 6.00 it is 1.15. Long shots need more value, because the model is wrong most often
+  there. No upper odds limit.
+- **Min. odds** in the bet365 list and the export = **0.97 / (p_final − 0.03)** (the price where p × odds equals the bar).
+- **Strong ◆** when p_final × odds ≥ bar + 0.08 (was: ≥ 1.10).
+- When a match has several markets that pass, the one furthest above its bar is chosen.
+- Same rule in the automatic shadow log (`picks.threshold / is_pick / is_strong / min_odds`), the validation
+  backtest, the bet365 list (result shows p × odds / bar), match cards, posts and the export header
+  ("Pravilo picka: …"). Picks logged before 17 Oct 2026 keep the rule they were logged with.
+- Tests: `test_pick_rule_and_strong_flag`, `test_app_pick_rule_matches_python_and_export_header` (JS = Python),
+  updated bet365 list and export tests.
+
 ## 2026-10-16 – calibration of p_model
 
 **What the data says.** The calibration table in the export pooled only the "yes" side of the tracked markets
