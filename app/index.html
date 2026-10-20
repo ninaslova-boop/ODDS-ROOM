@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="sl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Odds Room Analytics</title>
+<meta name="description" content="Analitika ekip in igralcev, rang lestvica najverjetnejših dogodkov, value proti kvotam, dnevnik pickov.">
+<meta name="theme-color" content="#04140E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <div class="logo"><span>THE</span><span class="g">ODDS</span><span>ROOM</span></div>
+    <div class="brand-sub">Analytics<br><span id="updated" class="muted">nalagam…</span></div>
+    <span class="spacer"></span>
+    <button class="btn claude" id="claudeBtn" title="Kopiraj povzetek dneva za analizo v Claudu">Za Claude</button>
+  </div>
+  <nav class="sports" id="sportChips" aria-label="Šport"></nav>
+  <nav class="tabs" id="tabs" aria-label="Pogled">
+    <button data-tab="matches" class="on">Tekme</button>
+    <button data-tab="ranking">Lestvica</button>
+    <button data-tab="value">Value</button>
+    <button data-tab="b365">bet365</button>
+    <button data-tab="players">Igralci</button>
+    <button data-tab="log">Dnevnik</button>
+    <button data-tab="backtest">Backtest</button>
+    <button data-tab="posts">Objave</button>
+  </nav>
+</header>
+
+<main id="view" class="wrap"></main>
+
+<div id="tip" class="tip" role="tooltip" hidden></div>
+
+<div id="claudeModal" class="modal" hidden>
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="cmTitle">
+    <div class="modal-head">
+      <h2 id="cmTitle">Povzetek za Claude</h2>
+      <button class="x" id="cmClose" aria-label="Zapri">×</button>
+    </div>
+    <p class="note">Kopiraj in prilepi v Claude. Vsebuje navodilo, odprte picke (p_final × bet365 &gt; 1 + 0.03 × (kvota − 1)), kandidate za preverjanje na bet365, DATA MISMATCH, nezanesljive tekme, postave, poškodbe, počitek, stanje dnevnika in oznake "not validated".</p>
+    <div class="filters">
+      <label>Dan<select id="cmDay"></select></label>
+      <label>Šport<select id="cmSport"><option value="all">Vsi</option></select></label>
+      <label class="check"><input type="checkbox" id="cmPlayers" checked> igralci</label>
+      <label class="check"><input type="checkbox" id="cmAll"> vse tekme dneva</label>
+    </div>
+    <textarea id="cmText" class="post-out" rows="14" readonly></textarea>
+    <div class="row"><button class="btn" id="cmCopy">Kopiraj</button><span class="muted small" id="cmCount"></span></div>
+  </div>
+</div>
+
+<footer class="foot">
+  18+ · Ocene modela, ne obljube. Igraj za zabavo. Nikoli ne lovi izgub.<br>
+  Viri: football-data.co.uk · Understat · ESPN · NHL API · EuroLeague API
+</footer>
+<script src="app.js"></script>
+</body>
+</html>

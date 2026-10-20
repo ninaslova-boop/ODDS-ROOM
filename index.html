@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="sl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Odds Room — Matchday Scanner</title>
+<style>
+  :root{
+    --bg1:#0B3D2E; --bg2:#04140E; --neon:#00E676; --amber:#FFB300;
+    --red:#FF3D3D; --white:#F2F5F3; --grey:#8AA69A; --card:#0d2a20;
+    --line:#1c4436;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  body{
+    margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    background:linear-gradient(160deg,var(--bg1),var(--bg2));
+    color:var(--white);min-height:100vh;padding:14px 12px 60px;font-size:15px;
+  }
+  h1{font-size:18px;margin:0 0 2px;letter-spacing:.5px;}
+  h1 .g{color:var(--neon);}
+  .sub{color:var(--grey);font-size:12px;margin-bottom:14px;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px;}
+  label{display:block;font-size:12px;color:var(--grey);margin:8px 0 4px;text-transform:uppercase;letter-spacing:.5px;}
+  input,select,textarea{
+    width:100%;padding:11px 12px;background:#08201a;border:1px solid var(--line);
+    border-radius:10px;color:var(--white);font-size:15px;font-family:inherit;
+  }
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--neon);}
+  textarea{resize:vertical;min-height:52px;}
+  .row{display:flex;gap:8px;}
+  .row>*{flex:1;}
+  button{
+    width:100%;padding:13px;border:none;border-radius:10px;font-size:15px;font-weight:700;
+    background:var(--neon);color:#05130d;margin-top:12px;cursor:pointer;letter-spacing:.3px;
+  }
+  button.sec{background:transparent;border:1px solid var(--line);color:var(--white);font-weight:600;}
+  button:active{opacity:.8;}
+  button:disabled{opacity:.4;}
+  .keyrow{display:flex;gap:8px;align-items:flex-end;}
+  .keyrow input{flex:1;}
+  .keyrow button{width:auto;margin-top:0;padding:11px 16px;}
+  .tabs{display:flex;gap:6px;margin-bottom:12px;}
+  .tabs button{margin-top:0;flex:1;background:#08201a;color:var(--grey);border:1px solid var(--line);font-weight:600;}
+  .tabs button.on{background:var(--neon);color:#05130d;}
+  .quota{font-size:12px;color:var(--grey);text-align:right;margin-top:-6px;margin-bottom:10px;}
+  .quota b{color:var(--amber);}
+  .out{white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;line-height:1.5;color:var(--white);background:#061a14;border:1px solid var(--line);border-radius:10px;padding:12px;margin-top:12px;overflow-x:auto;}
+  .err{color:var(--red);}
+  .warn{color:var(--amber);font-size:12px;margin-top:6px;}
+  .fx{border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:8px;display:flex;align-items:center;gap:10px;}
+  .fx input[type=checkbox]{width:20px;height:20px;flex:0 0 auto;accent-color:var(--neon);}
+  .fx .t{font-size:14px;}
+  .fx .m{font-size:11px;color:var(--grey);}
+  .pill{display:inline-block;font-size:10px;padding:2px 7px;border-radius:20px;border:1px solid var(--neon);color:var(--neon);margin-left:6px;}
+  .hide{display:none;}
+  .foot{font-size:11px;color:var(--grey);text-align:center;margin-top:18px;}
+  .copybtn{background:var(--amber);color:#1a1200;margin-top:8px;}
+  .small{font-size:11px;color:var(--grey);margin-top:4px;line-height:1.4;}
+</style>
+</head>
+<body>
+
+<h1>THE <span class="g">ODDS</span> ROOM</h1>
+<div class="sub">Matchday scanner · surova forma / H2H / goli / kvote</div>
+
+<!-- API KEY -->
+<div class="card" id="keyCard">
+  <label>API-Football ključ (samo v spominu seje)</label>
+  <div class="keyrow">
+    <input type="password" id="apikey" placeholder="prilepi nov ključ" autocomplete="off">
+    <button onclick="saveKey()">Shrani</button>
+  </div>
+  <div class="small">Ključ se nikamor ne shrani. Ob zaprtju zavihka izgine in ga vpišeš znova.</div>
+  <div id="keystatus" class="warn"></div>
+</div>
+
+<div id="app" class="hide">
+  <div class="quota">Danes porabljeno: <b id="usedN">0</b> / 100 klicev</div>
+
+  <div class="tabs">
+    <button id="tabLeague" class="on" onclick="setTab('league')">Po ligi + datumu</button>
+    <button id="tabTeams" onclick="setTab('teams')">Po imenih ekip</button>
+  </div>
+
+  <!-- MODE A: league + date -->
+  <div class="card" id="leagueCard">
+    <div class="row">
+      <div>
+        <label>Liga</label>
+        <select id="leagueSel">
+          <option value="39">Premier League (ENG)</option>
+          <option value="40">Championship (ENG)</option>
+          <option value="140">LaLiga (ESP)</option>
+          <option value="135">Serie A (ITA)</option>
+          <option value="78">Bundesliga (GER)</option>
+          <option value="61">Ligue 1 (FRA)</option>
+          <option value="2">Champions League</option>
+          <option value="3">Europa League</option>
+          <option value="88">Eredivisie (NED)</option>
+          <option value="94">Primeira Liga (POR)</option>
+          <option value="144">Jupiler Pro (BEL)</option>
+          <option value="203">Süper Lig (TUR)</option>
+          <option value="207">Super League (SUI)</option>
+          <option value="103">Eliteserien (NOR)</option>
+          <option value="113">Allsvenskan (SWE)</option>
+          <option value="119">Superliga (DEN)</option>
+          <option value="210">HNL (CRO)</option>
+          <option value="292">K League 1 (KOR)</option>
+          <option value="98">J1 League (JPN)</option>
+          <option value="307">Saudi Pro League</option>
+          <option value="106">Ekstraklasa (POL)</option>
+          <option value="283">Liga 1 (ROU)</option>
+          <option value="__custom">— drug ID (ročno) —</option>
+        </select>
+      </div>
+      <div>
+        <label>Datum</label>
+        <input type="date" id="dateInp">
+      </div>
+    </div>
+    <input type="number" id="customLeague" class="hide" placeholder="league ID" style="margin-top:8px">
+    <div class="small" id="seasonNote">Sezona se ugane samodejno (evropske 2025, koledarske 2026). Popravi spodaj, če ne dela.</div>
+    <input type="number" id="seasonInp" placeholder="sezona (npr. 2025)" style="margin-top:8px">
+    <button class="sec" onclick="listFixtures()">Pokaži tekme tega dne (1 klic)</button>
+    <div id="fxList"></div>
+    <button id="scanSelBtn" class="hide" onclick="scanSelected()">Skeniraj izbrane tekme</button>
+  </div>
+
+  <!-- MODE B: team names -->
+  <div class="card hide" id="teamsCard">
+    <label>Ekipi (ena tekma)</label>
+    <input type="text" id="homeTeam" placeholder="domača ekipa, npr. Liverpool">
+    <input type="text" id="awayTeam" placeholder="gostujoča ekipa, npr. Arsenal" style="margin-top:8px">
+    <div class="small">Poišče vsako ekipo po imenu, nato formo obeh + H2H. ~5 klicev.</div>
+    <button onclick="scanByNames()">Skeniraj tekmo</button>
+  </div>
+
+  <div id="output"></div>
+</div>
+
+<div class="foot">18+ · Entertainment, not financial advice</div>
+
+<script>
+const BASE="https://v3.football.api-sports.io";
+let KEY="";
+let used=0;
+let tab="league";
+let lastFixtures=[];
+
+// ---- date default = today ----
+document.getElementById('dateInp').value = new Date().toISOString().slice(0,10);
+
+function saveKey(){
+  const v=document.getElementById('apikey').value.trim();
+  if(!v){document.getElementById('keystatus').textContent="Vpiši ključ.";return;}
+  KEY=v;
+  document.getElementById('keystatus').textContent="";
+  document.getElementById('keyCard').classList.add('hide');
+  document.getElementById('app').classList.remove('hide');
+}
+
+function setTab(t){
+  tab=t;
+  document.getElementById('tabLeague').classList.toggle('on',t==='league');
+  document.getElementById('tabTeams').classList.toggle('on',t==='teams');
+  document.getElementById('leagueCard').classList.toggle('hide',t!=='league');
+  document.getElementById('teamsCard').classList.toggle('hide',t!=='teams');
+}
+
+document.getElementById('leagueSel').addEventListener('change',e=>{
+  document.getElementById('customLeague').classList.toggle('hide',e.target.value!=='__custom');
+});
+
+function guessSeason(leagueId){
+  // European calendar leagues run Aug-May => season = start year.
+  // Calendar-year leagues (Nordic, K/J League, MLS, Saudi is Aug-May too) => current year.
+  const calendarYear=['103','113','119','292','98']; // Eliteserien, Allsvenskan, Danish is Jul-May actually; K/J calendar
+  const now=new Date();
+  const y=now.getFullYear(), m=now.getMonth()+1;
+  if(calendarYear.includes(String(leagueId))) return y;
+  // Aug-Dec => current year season; Jan-Jul => previous year season
+  return m>=8 ? y : y-1;
+}
+
+function bumpQuota(n){used+=n;document.getElementById('usedN').textContent=used;}
+
+async function api(path){
+  const r=await fetch(BASE+path,{headers:{'x-apisports-key':KEY}});
+  bumpQuota(1);
+  const j=await r.json();
+  if(j.errors && (Array.isArray(j.errors)?j.errors.length:Object.keys(j.errors).length)){
+    throw new Error(JSON.stringify(j.errors));
+  }
+  return j.response||[];
+}
+
+function currentLeagueId(){
+  const sel=document.getElementById('leagueSel').value;
+  return sel==='__custom' ? document.getElementById('customLeague').value.trim() : sel;
+}
+function currentSeason(lid){
+  const manual=document.getElementById('seasonInp').value.trim();
+  return manual || guessSeason(lid);
+}
+
+// ---- MODE A: list fixtures for league+date ----
+async function listFixtures(){
+  const out=document.getElementById('output'); out.innerHTML="";
+  const fx=document.getElementById('fxList'); fx.innerHTML="<div class='small'>Nalagam…</div>";
+  document.getElementById('scanSelBtn').classList.add('hide');
+  const lid=currentLeagueId(), date=document.getElementById('dateInp').value;
+  const season=currentSeason(lid);
+  if(!lid){fx.innerHTML="<div class='err'>Manjka league ID.</div>";return;}
+  try{
+    const res=await api(`/fixtures?league=${lid}&season=${season}&date=${date}`);
+    lastFixtures=res;
+    if(!res.length){
+      fx.innerHTML="<div class='warn'>Ni tekem za ta dan/ligo/sezono. Preveri sezono (gumb spodaj) ali datum.</div>";
+      return;
+    }
+    fx.innerHTML="";
+    res.forEach((f,i)=>{
+      const d=new Date(f.fixture.date);
+      const t=d.toLocaleTimeString('sl-SI',{hour:'2-digit',minute:'2-digit'});
+      const div=document.createElement('div');
+      div.className='fx';
+      div.innerHTML=`<input type="checkbox" data-i="${i}">
+        <div><div class="t">${f.teams.home.name} v ${f.teams.away.name}</div>
+        <div class="m">${t} · ${f.league.round||''}</div></div>`;
+      fx.appendChild(div);
+    });
+    document.getElementById('scanSelBtn').classList.remove('hide');
+  }catch(e){
+    fx.innerHTML=`<div class='err'>Napaka: ${e.message}</div>`;
+  }
+}
+
+async function scanSelected(){
+  const boxes=[...document.querySelectorAll('#fxList input:checked')];
+  if(!boxes.length){alert("Izberi vsaj eno tekmo.");return;}
+  const out=document.getElementById('output');
+  out.innerHTML="<div class='small'>Skeniram… vsaka tekma porabi ~3 klice.</div>";
+  const lid=currentLeagueId(), season=currentSeason(lid);
+  let report="";
+  for(const b of boxes){
+    const f=lastFixtures[+b.dataset.i];
+    report += await buildReport(f.teams.home, f.teams.away, lid, season);
+    report += "\n"+"─".repeat(34)+"\n\n";
+  }
+  renderReport(report);
+}
+
+// ---- MODE B: by team names ----
+async function findTeam(name){
+  const res=await api(`/teams?search=${encodeURIComponent(name)}`);
+  if(!res.length) throw new Error(`Ekipe "${name}" ni najdena.`);
+  return {id:res[0].team.id,name:res[0].team.name};
+}
+async function scanByNames(){
+  const h=document.getElementById('homeTeam').value.trim();
+  const a=document.getElementById('awayTeam').value.trim();
+  if(!h||!a){alert("Vpiši obe ekipi.");return;}
+  const out=document.getElementById('output');
+  out.innerHTML="<div class='small'>Iščem ekipi in formo…</div>";
+  try{
+    const H=await findTeam(h), A=await findTeam(a);
+    const report=await buildReport(H,A,null,null);
+    renderReport(report);
+  }catch(e){
+    out.innerHTML=`<div class='err'>Napaka: ${e.message}</div>`;
+  }
+}
+
+// ---- shared: build a text report for one fixture ----
+async function lastN(teamId,n){
+  return await api(`/fixtures?team=${teamId}&last=${n}`);
+}
+function formLine(fixtures,teamId){
+  // returns {str, overs, btts, scored, conceded}
+  let overs=0,btts=0,gf=0,ga=0,lines=[];
+  fixtures.forEach(f=>{
+    const hg=f.goals.home, ag=f.goals.away;
+    if(hg==null||ag==null) return;
+    const home=f.teams.home.id===teamId;
+    const my=home?hg:ag, opp=home?ag:hg;
+    gf+=my; ga+=opp;
+    const tot=hg+ag;
+    if(tot>2.5) overs++;
+    if(hg>0&&ag>0) btts++;
+    const res=my>opp?'W':(my<opp?'L':'D');
+    const opN=(home?f.teams.away.name:f.teams.home.name).slice(0,12);
+    lines.push(`  ${res} ${my}-${opp} ${home?'v':'@'} ${opN}`);
+  });
+  const n=fixtures.filter(f=>f.goals.home!=null).length||1;
+  return {
+    body:lines.join("\n"),
+    overs, btts, n,
+    gf:(gf/n).toFixed(2), ga:(ga/n).toFixed(2)
+  };
+}
+
+async function buildReport(home,away,lid,season){
+  let r=`### ${home.name} v ${away.name}\n`;
+  try{
+    const [hf,af]=await Promise.all([lastN(home.id,6),lastN(away.id,6)]);
+    const hh=formLine(hf,home.id), aa=formLine(af,away.id);
+    r+=`\n${home.name} — zadnjih ${hh.n}:\n${hh.body}\n`;
+    r+=`  gol +${hh.gf}/tekmo, prejeti ${hh.ga}/tekmo · O2.5: ${hh.overs}/${hh.n} · BTTS: ${hh.btts}/${hh.n}\n`;
+    r+=`\n${away.name} — zadnjih ${aa.n}:\n${aa.body}\n`;
+    r+=`  gol +${aa.gf}/tekmo, prejeti ${aa.ga}/tekmo · O2.5: ${aa.overs}/${aa.n} · BTTS: ${aa.btts}/${aa.n}\n`;
+    // H2H
+    const h2h=await api(`/fixtures/headtohead?h2h=${home.id}-${away.id}&last=5`);
+    if(h2h.length){
+      r+=`\nH2H zadnjih ${h2h.length}:\n`;
+      h2h.forEach(f=>{
+        const d=new Date(f.fixture.date).toISOString().slice(0,10);
+        r+=`  ${d}: ${f.teams.home.name} ${f.goals.home}-${f.goals.away} ${f.teams.away.name}\n`;
+      });
+    }
+  }catch(e){
+    r+=`\n[delni podatki — ${e.message}]\n`;
+  }
+  return r;
+}
+
+function renderReport(text){
+  const out=document.getElementById('output');
+  out.innerHTML=`<div class="out" id="reportText">${escapeHtml(text)}</div>
+    <button class="copybtn" onclick="copyReport()">Kopiraj za Claude</button>`;
+  window.__report=text;
+}
+function escapeHtml(s){return s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+function copyReport(){
+  navigator.clipboard.writeText(window.__report||"").then(()=>{
+    const b=document.querySelector('.copybtn'); b.textContent="Kopirano ✓";
+    setTimeout(()=>b.textContent="Kopiraj za Claude",1500);
+  });
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,2407 @@
+{
+ "generated": "2026-10-20T13:47:17Z",
+ "today": "2026-10-20",
+ "status": {
+  "football": {
+   "matches": 221,
+   "players": 1674,
+   "ok": true
+  },
+  "nhl": {
+   "matches": 47,
+   "players": 688,
+   "ok": true
+  },
+  "nba": {
+   "matches": 52,
+   "players": 391,
+   "ok": true
+  },
+  "euroleague": {
+   "matches": 10,
+   "players": 273,
+   "ok": true
+  }
+ },
+ "mode": "full",
+ "news": 116,
+ "injury_sources": {
+  "euroleague": [
+   "EuroLeague (izpuščene tekme)"
+  ],
+  "E0": [
+   "FPL"
+  ],
+  "nba": [
+   "ESPN"
+  ],
+  "nhl": [
+   "ESPN"
+  ]
+ },
+ "player_data": {
+  "euroleague": {
+   "ok": true,
+   "season": "E2026",
+   "games": 60
+  }
+ },
+ "market_w": {
+  "football": 0.4,
+  "nhl": 0.4,
+  "nba": 0.4,
+  "euroleague": 0.4
+ },
+ "market_w_thin": 0.6,
+ "calibration": {
+  "fitted": "2026-10-19",
+  "sports": {
+   "euroleague": {
+    "method": "none",
+    "n": 30,
+    "raw": null,
+    "cal": null,
+    "reason": "premalo vzorcev (30 < 1000)"
+   },
+   "football": {
+    "method": "none",
+    "n": 34879,
+    "raw": 0.21856,
+    "cal": null,
+    "reason": "kalibracija na izločenih podatkih ne zmanjša Brier"
+   },
+   "nhl": {
+    "method": "none",
+    "n": 1356,
+    "raw": 0.23289,
+    "cal": null,
+    "reason": "kalibracija na izločenih podatkih ne zmanjša Brier"
+   }
+  }
+ },
+ "errors": [
+  "ESPN pol.1: ESPN pol.1: no day could be fetched",
+  "ESPN cro.1: ESPN cro.1: no day could be fetched",
+  "ESPN srb.1: ESPN srb.1: no day could be fetched",
+  "ESPN ukr.1: ESPN ukr.1: no day could be fetched",
+  "ESPN svn.1: ESPN svn.1: no day could be fetched",
+  "ESPN hun.1: ESPN hun.1: no day could be fetched",
+  "ESPN bul.1: ESPN bul.1: no day could be fetched",
+  "ESPN svk.1: ESPN svk.1: no day could be fetched",
+  "ESPN aze.1: ESPN aze.1: no day could be fetched",
+  "ESPN kaz.1: ESPN kaz.1: no day could be fetched"
+ ],
+ "ratings": {
+  "football": {
+   "E0": {
+    "home_adv": 1.241,
+    "avg_goals": 2.82,
+    "table": [
+     {
+      "team": "Brighton",
+      "att": 1.449,
+      "def": 0.798
+     },
+     {
+      "team": "Man City",
+      "att": 1.43,
+      "def": 0.815
+     },
+     {
+      "team": "Arsenal",
+      "att": 1.162,
+      "def": 0.695
+     },
+     {
+      "team": "Chelsea",
+      "att": 1.326,
+      "def": 1.085
+     },
+     {
+      "team": "Brentford",
+      "att": 1.123,
+      "def": 0.935
+     },
+     {
+      "team": "Man United",
+      "att": 1.147,
+      "def": 0.963
+     },
+     {
+      "team": "Liverpool",
+      "att": 1.055,
+      "def": 0.924
+     },
+     {
+      "team": "Leeds",
+      "att": 0.973,
+      "def": 0.855
+     },
+     {
+      "team": "Aston Villa",
+      "att": 1.001,
+      "def": 0.998
+     },
+     {
+      "team": "Everton",
+      "att": 0.901,
+      "def": 0.914
+     },
+     {
+      "team": "Bournemouth",
+      "att": 1.026,
+      "def": 1.047
+     },
+     {
+      "team": "West Ham",
+      "att": 0.972,
+      "def": 1.052
+     },
+     {
+      "team": "Nott'm Forest",
+      "att": 0.866,
+      "def": 0.951
+     },
+     {
+      "team": "Fulham",
+      "att": 0.859,
+      "def": 0.964
+     },
+     {
+      "team": "Hull",
+      "att": 0.846,
+      "def": 0.951
+     },
+     {
+      "team": "Newcastle",
+      "att": 1.017,
+      "def": 1.187
+     },
+     {
+      "team": "Tottenham",
+      "att": 0.857,
+      "def": 1.035
+     },
+     {
+      "team": "Sunderland",
+      "att": 0.859,
+      "def": 1.059
+     },
+     {
+      "team": "Ipswich",
+      "att": 1.017,
+      "def": 1.307
+     },
+     {
+      "team": "Crystal Palace",
+      "att": 0.94,
+      "def": 1.209
+     },
+     {
+      "team": "Burnley",
+      "att": 0.883,
+      "def": 1.178
+     },
+     {
+      "team": "Wolves",
+      "att": 0.804,
+      "def": 1.095
+     },
+     {
+      "team": "Coventry",
+      "att": 0.822,
+      "def": 1.236
+     }
+    ]
+   },
+   "E1": {
+    "home_adv": 1.194,
+    "avg_goals": 2.77,
+    "table": [
+     {
+      "team": "West Ham",
+      "att": 1.605,
+      "def": 0.829
+     },
+     {
+      "team": "Southampton",
+      "att": 1.219,
+      "def": 0.857
+     },
+     {
+      "team": "Coventry",
+      "att": 1.217,
+      "def": 0.884
+     },
+     {
+      "team": "Wolves",
+      "att": 1.225,
+      "def": 0.917
+     },
+     {
+      "team": "Middlesbrough",
+      "att": 1.199,
+      "def": 0.959
+     },
+     {
+      "team": "Birmingham",
+      "att": 1.087,
+      "def": 0.87
+     },
+     {
+      "team": "Ipswich",
+      "att": 1.119,
+      "def": 0.902
+     },
+     {
+      "team": "Swansea",
+      "att": 0.991,
+      "def": 0.821
+     },
+     {
+      "team": "Millwall",
+      "att": 1.069,
+      "def": 0.984
+     },
+     {
+      "team": "Burnley",
+      "att": 1.13,
+      "def": 1.083
+     },
+     {
+      "team": "Sheffield United",
+      "att": 1.028,
+      "def": 0.994
+     },
+     {
+      "team": "West Brom",
+      "att": 0.928,
+      "def": 0.9
+     },
+     {
+      "team": "Hull",
+      "att": 1.036,
+      "def": 1.015
+     },
+     {
+      "team": "Wrexham",
+      "att": 1.034,
+      "def": 1.026
+     },
+     {
+      "team": "QPR",
+      "att": 0.984,
+      "def": 0.978
+     },
+     {
+      "team": "Stoke",
+      "att": 1.006,
+      "def": 1.006
+     },
+     {
+      "team": "Norwich",
+      "att": 1.058,
+      "def": 1.079
+     },
+     {
+      "team": "Blackburn",
+      "att": 0.947,
+      "def": 0.99
+     },
+     {
+      "team": "Portsmouth",
+      "att": 0.927,
+      "def": 0.997
+     },
+     {
+      "team": "Leicester",
+      "att": 0.957,
+      "def": 1.039
+     },
+     {
+      "team": "Oxford",
+      "att": 0.887,
+      "def": 0.968
+     },
+     {
+      "team": "Bristol City",
+      "att": 0.886,
+      "def": 0.996
+     },
+     {
+      "team": "Cardiff",
+      "att": 1.019,
+      "def": 1.16
+     },
+     {
+      "team": "Derby",
+      "att": 0.891,
+      "def": 1.076
+     },
+     {
+      "team": "Bolton",
+      "att": 0.918,
+      "def": 1.12
+     },
+     {
+      "team": "Charlton",
+      "att": 0.8,
+      "def": 0.984
+     },
+     {
+      "team": "Watford",
+      "att": 0.832,
+      "def": 1.126
+     },
+     {
+      "team": "Sheffield Weds",
+      "att": 0.793,
+      "def": 1.165
+     },
+     {
+      "team": "Preston",
+      "att": 0.83,
+      "def": 1.249
+     },
+     {
+      "team": "Lincoln",
+      "att": 0.761,
+      "def": 1.197
+     }
+    ]
+   },
+   "SP1": {
+    "home_adv": 1.345,
+    "avg_goals": 2.91,
+    "table": [
+     {
+      "team": "Barcelona",
+      "att": 2.168,
+      "def": 0.798
+     },
+     {
+      "team": "Real Madrid",
+      "att": 1.477,
+      "def": 0.77
+     },
+     {
+      "team": "Ath Madrid",
+      "att": 1.277,
+      "def": 0.804
+     },
+     {
+      "team": "Betis",
+      "att": 1.194,
+      "def": 0.976
+     },
+     {
+      "team": "Villarreal",
+      "att": 1.127,
+      "def": 0.931
+     },
+     {
+      "team": "Celta",
+      "att": 0.91,
+      "def": 0.821
+     },
+     {
+      "team": "Sociedad",
+      "att": 1.278,
+      "def": 1.192
+     },
+     {
+      "team": "Ath Bilbao",
+      "att": 0.88,
+      "def": 0.862
+     },
+     {
+      "team": "Alaves",
+      "att": 0.991,
+      "def": 0.975
+     },
+     {
+      "team": "Mallorca",
+      "att": 0.985,
+      "def": 1.003
+     },
+     {
+      "team": "Sevilla",
+      "att": 1.047,
+      "def": 1.072
+     },
+     {
+      "team": "Vallecano",
+      "att": 0.99,
+      "def": 1.031
+     },
+     {
+      "team": "Girona",
+      "att": 0.894,
+      "def": 0.938
+     },
+     {
+      "team": "Levante",
+      "att": 1.034,
+      "def": 1.139
+     },
+     {
+      "team": "Espanol",
+      "att": 0.873,
+      "def": 0.968
+     },
+     {
+      "team": "Elche",
+      "att": 0.961,
+      "def": 1.069
+     },
+     {
+      "team": "La Coruna",
+      "att": 0.93,
+      "def": 1.069
+     },
+     {
+      "team": "Getafe",
+      "att": 0.646,
+      "def": 0.798
+     },
+     {
+      "team": "Valencia",
+      "att": 0.795,
+      "def": 1.008
+     },
+     {
+      "team": "Osasuna",
+      "att": 0.885,
+      "def": 1.16
+     },
+     {
+      "team": "Oviedo",
+      "att": 0.778,
+      "def": 1.028
+     },
+     {
+      "team": "Santander",
+      "att": 0.992,
+      "def": 1.629
+     },
+     {
+      "team": "Malaga",
+      "att": 0.693,
+      "def": 1.321
+     }
+    ]
+   },
+   "I1": {
+    "home_adv": 1.12,
+    "avg_goals": 2.69,
+    "table": [
+     {
+      "team": "Roma",
+      "att": 1.348,
+      "def": 0.658
+     },
+     {
+      "team": "Inter",
+      "att": 1.797,
+      "def": 0.898
+     },
+     {
+      "team": "Como",
+      "att": 1.253,
+      "def": 0.77
+     },
+     {
+      "team": "Lazio",
+      "att": 1.105,
+      "def": 0.764
+     },
+     {
+      "team": "Milan",
+      "att": 1.183,
+      "def": 0.835
+     },
+     {
+      "team": "Napoli",
+      "att": 1.077,
+      "def": 0.796
+     },
+     {
+      "team": "Juventus",
+      "att": 1.088,
+      "def": 0.852
+     },
+     {
+      "team": "Atalanta",
+      "att": 1.065,
+      "def": 0.954
+     },
+     {
+      "team": "Frosinone",
+      "att": 1.13,
+      "def": 1.074
+     },
+     {
+      "team": "Torino",
+      "att": 1.034,
+      "def": 1.055
+     },
+     {
+      "team": "Sassuolo",
+      "att": 1.091,
+      "def": 1.139
+     },
+     {
+      "team": "Bologna",
+      "att": 0.91,
+      "def": 0.96
+     },
+     {
+      "team": "Cagliari",
+      "att": 0.825,
+      "def": 0.919
+     },
+     {
+      "team": "Monza",
+      "att": 1.177,
+      "def": 1.352
+     },
+     {
+      "team": "Udinese",
+      "att": 0.981,
+      "def": 1.148
+     },
+     {
+      "team": "Lecce",
+      "att": 0.865,
+      "def": 1.062
+     },
+     {
+      "team": "Cremonese",
+      "att": 0.832,
+      "def": 1.08
+     },
+     {
+      "team": "Genoa",
+      "att": 0.831,
+      "def": 1.085
+     },
+     {
+      "team": "Fiorentina",
+      "att": 0.923,
+      "def": 1.22
+     },
+     {
+      "team": "Verona",
+      "att": 0.764,
+      "def": 1.069
+     },
+     {
+      "team": "Parma",
+      "att": 0.697,
+      "def": 1.041
+     },
+     {
+      "team": "Pisa",
+      "att": 0.779,
+      "def": 1.251
+     },
+     {
+      "team": "Venezia",
+      "att": 0.795,
+      "def": 1.43
+     }
+    ]
+   },
+   "D1": {
+    "home_adv": 1.422,
+    "avg_goals": 3.45,
+    "table": [
+     {
+      "team": "Bayern Munich",
+      "att": 1.746,
+      "def": 0.788
+     },
+     {
+      "team": "Dortmund",
+      "att": 1.09,
+      "def": 0.744
+     },
+     {
+      "team": "Leverkusen",
+      "att": 1.241,
+      "def": 0.901
+     },
+     {
+      "team": "RB Leipzig",
+      "att": 1.22,
+      "def": 0.943
+     },
+     {
+      "team": "Freiburg",
+      "att": 1.102,
+      "def": 0.9
+     },
+     {
+      "team": "Stuttgart",
+      "att": 1.076,
+      "def": 0.907
+     },
+     {
+      "team": "Augsburg",
+      "att": 1.13,
+      "def": 1.037
+     },
+     {
+      "team": "Mainz",
+      "att": 1.06,
+      "def": 0.987
+     },
+     {
+      "team": "Hoffenheim",
+      "att": 1.081,
+      "def": 1.101
+     },
+     {
+      "team": "Werder Bremen",
+      "att": 0.97,
+      "def": 1.037
+     },
+     {
+      "team": "Elversberg",
+      "att": 1.001,
+      "def": 1.109
+     },
+     {
+      "team": "Wolfsburg",
+      "att": 0.932,
+      "def": 1.047
+     },
+     {
+      "team": "Heidenheim",
+      "att": 0.938,
+      "def": 1.064
+     },
+     {
+      "team": "Ein Frankfurt",
+      "att": 1.013,
+      "def": 1.168
+     },
+     {
+      "team": "FC Koln",
+      "att": 0.896,
+      "def": 1.054
+     },
+     {
+      "team": "St Pauli",
+      "att": 0.823,
+      "def": 0.999
+     },
+     {
+      "team": "Hamburg",
+      "att": 0.856,
+      "def": 1.067
+     },
+     {
+      "team": "Schalke 04",
+      "att": 0.729,
+      "def": 0.934
+     },
+     {
+      "team": "Paderborn",
+      "att": 0.776,
+      "def": 1.034
+     },
+     {
+      "team": "M'gladbach",
+      "att": 0.891,
+      "def": 1.193
+     },
+     {
+      "team": "Union Berlin",
+      "att": 0.827,
+      "def": 1.124
+     }
+    ]
+   },
+   "F1": {
+    "home_adv": 1.22,
+    "avg_goals": 2.95,
+    "table": [
+     {
+      "team": "Paris SG",
+      "att": 1.326,
+      "def": 0.795
+     },
+     {
+      "team": "Lyon",
+      "att": 1.126,
+      "def": 0.794
+     },
+     {
+      "team": "Lens",
+      "att": 1.256,
+      "def": 0.941
+     },
+     {
+      "team": "Lille",
+      "att": 0.974,
+      "def": 0.759
+     },
+     {
+      "team": "Monaco",
+      "att": 1.105,
+      "def": 0.869
+     },
+     {
+      "team": "Marseille",
+      "att": 1.208,
+      "def": 0.957
+     },
+     {
+      "team": "Paris FC",
+      "att": 1.067,
+      "def": 0.881
+     },
+     {
+      "team": "Rennes",
+      "att": 1.264,
+      "def": 1.117
+     },
+     {
+      "team": "Toulouse",
+      "att": 1.104,
+      "def": 0.996
+     },
+     {
+      "team": "Lorient",
+      "att": 0.902,
+      "def": 0.851
+     },
+     {
+      "team": "Brest",
+      "att": 1.068,
+      "def": 1.022
+     },
+     {
+      "team": "Strasbourg",
+      "att": 1.163,
+      "def": 1.127
+     },
+     {
+      "team": "Auxerre",
+      "att": 0.984,
+      "def": 1.141
+     },
+     {
+      "team": "Nantes",
+      "att": 0.832,
+      "def": 0.976
+     },
+     {
+      "team": "Nice",
+      "att": 0.808,
+      "def": 1.003
+     },
+     {
+      "team": "Le Havre",
+      "att": 0.764,
+      "def": 0.979
+     },
+     {
+      "team": "Le Mans",
+      "att": 0.927,
+      "def": 1.271
+     },
+     {
+      "team": "Angers",
+      "att": 0.839,
+      "def": 1.184
+     },
+     {
+      "team": "Metz",
+      "att": 0.868,
+      "def": 1.233
+     },
+     {
+      "team": "Troyes",
+      "att": 0.721,
+      "def": 1.366
+     }
+    ]
+   },
+   "N1": {
+    "home_adv": 1.048,
+    "avg_goals": 3.55,
+    "table": [
+     {
+      "team": "PSV Eindhoven",
+      "att": 1.59,
+      "def": 0.837
+     },
+     {
+      "team": "Feyenoord",
+      "att": 1.467,
+      "def": 0.799
+     },
+     {
+      "team": "Ajax",
+      "att": 1.347,
+      "def": 0.811
+     },
+     {
+      "team": "Twente",
+      "att": 1.058,
+      "def": 0.763
+     },
+     {
+      "team": "AZ Alkmaar",
+      "att": 1.088,
+      "def": 0.819
+     },
+     {
+      "team": "Heerenveen",
+      "att": 1.009,
+      "def": 0.823
+     },
+     {
+      "team": "Groningen",
+      "att": 1.166,
+      "def": 0.99
+     },
+     {
+      "team": "Nijmegen",
+      "att": 1.054,
+      "def": 0.954
+     },
+     {
+      "team": "Go Ahead Eagles",
+      "att": 1.087,
+      "def": 1.103
+     },
+     {
+      "team": "For Sittard",
+      "att": 0.986,
+      "def": 1.025
+     },
+     {
+      "team": "Utrecht",
+      "att": 1.036,
+      "def": 1.107
+     },
+     {
+      "team": "Excelsior",
+      "att": 0.957,
+      "def": 1.025
+     },
+     {
+      "team": "Volendam",
+      "att": 0.825,
+      "def": 0.929
+     },
+     {
+      "team": "Telstar",
+      "att": 0.88,
+      "def": 1.005
+     },
+     {
+      "team": "NAC Breda",
+      "att": 0.84,
+      "def": 0.972
+     },
+     {
+      "team": "Sparta Rotterdam",
+      "att": 0.936,
+      "def": 1.168
+     },
+     {
+      "team": "Den Haag",
+      "att": 0.829,
+      "def": 1.132
+     },
+     {
+      "team": "Cambuur",
+      "att": 0.89,
+      "def": 1.243
+     },
+     {
+      "team": "Zwolle",
+      "att": 0.83,
+      "def": 1.172
+     },
+     {
+      "team": "Heracles",
+      "att": 0.81,
+      "def": 1.182
+     },
+     {
+      "team": "Willem II",
+      "att": 0.741,
+      "def": 1.435
+     }
+    ]
+   },
+   "P1": {
+    "home_adv": 1.072,
+    "avg_goals": 2.71,
+    "table": [
+     {
+      "team": "Porto",
+      "att": 1.52,
+      "def": 0.594
+     },
+     {
+      "team": "Benfica",
+      "att": 1.836,
+      "def": 0.764
+     },
+     {
+      "team": "Sp Lisbon",
+      "att": 1.751,
+      "def": 0.815
+     },
+     {
+      "team": "Santa Clara",
+      "att": 0.954,
+      "def": 0.734
+     },
+     {
+      "team": "Sp Braga",
+      "att": 1.115,
+      "def": 0.925
+     },
+     {
+      "team": "Arouca",
+      "att": 1.087,
+      "def": 0.947
+     },
+     {
+      "team": "Gil Vicente",
+      "att": 0.912,
+      "def": 0.806
+     },
+     {
+      "team": "Famalicao",
+      "att": 0.979,
+      "def": 0.898
+     },
+     {
+      "team": "Academico Viseu",
+      "att": 1.055,
+      "def": 0.97
+     },
+     {
+      "team": "Alverca",
+      "att": 1.073,
+      "def": 1.042
+     },
+     {
+      "team": "Estrela",
+      "att": 1.089,
+      "def": 1.235
+     },
+     {
+      "team": "Guimaraes",
+      "att": 0.755,
+      "def": 0.976
+     },
+     {
+      "team": "Maritimo",
+      "att": 0.919,
+      "def": 1.221
+     },
+     {
+      "team": "Moreirense",
+      "att": 0.856,
+      "def": 1.166
+     },
+     {
+      "team": "Tondela",
+      "att": 0.811,
+      "def": 1.119
+     },
+     {
+      "team": "Estoril",
+      "att": 0.814,
+      "def": 1.129
+     },
+     {
+      "team": "Nacional",
+      "att": 0.893,
+      "def": 1.296
+     },
+     {
+      "team": "AVS",
+      "att": 0.814,
+      "def": 1.2
+     },
+     {
+      "team": "Rio Ave",
+      "att": 0.869,
+      "def": 1.311
+     },
+     {
+      "team": "Casa Pia",
+      "att": 0.65,
+      "def": 1.298
+     }
+    ]
+   },
+   "B1": {
+    "home_adv": 1.228,
+    "avg_goals": 2.89,
+    "table": [
+     {
+      "team": "St. Gilloise",
+      "att": 1.35,
+      "def": 0.692
+     },
+     {
+      "team": "Club Brugge",
+      "att": 1.46,
+      "def": 0.776
+     },
+     {
+      "team": "Gent",
+      "att": 1.078,
+      "def": 0.799
+     },
+     {
+      "team": "Charleroi",
+      "att": 1.093,
+      "def": 0.852
+     },
+     {
+      "team": "Genk",
+      "att": 1.128,
+      "def": 0.955
+     },
+     {
+      "team": "Westerlo",
+      "att": 1.235,
+      "def": 1.099
+     },
+     {
+      "team": "St Truiden",
+      "att": 1.136,
+      "def": 1.045
+     },
+     {
+      "team": "Anderlecht",
+      "att": 0.978,
+      "def": 0.907
+     },
+     {
+      "team": "Waregem",
+      "att": 1.003,
+      "def": 0.938
+     },
+     {
+      "team": "Standard",
+      "att": 0.995,
+      "def": 0.959
+     },
+     {
+      "team": "Lommel SK",
+      "att": 0.861,
+      "def": 0.966
+     },
+     {
+      "team": "Cercle Brugge",
+      "att": 1.012,
+      "def": 1.147
+     },
+     {
+      "team": "Dender",
+      "att": 0.898,
+      "def": 1.067
+     },
+     {
+      "team": "Antwerp",
+      "att": 0.963,
+      "def": 1.145
+     },
+     {
+      "team": "Mechelen",
+      "att": 0.945,
+      "def": 1.158
+     },
+     {
+      "team": "Oud-Heverlee Leuven",
+      "att": 0.834,
+      "def": 1.024
+     },
+     {
+      "team": "RAAL La Louviere",
+      "att": 0.877,
+      "def": 1.186
+     },
+     {
+      "team": "Beveren",
+      "att": 0.818,
+      "def": 1.221
+     },
+     {
+      "team": "Kortrijk",
+      "att": 0.655,
+      "def": 1.315
+     }
+    ]
+   },
+   "T1": {
+    "home_adv": 1.336,
+    "avg_goals": 2.8,
+    "table": [
+     {
+      "team": "Fenerbahce",
+      "att": 1.631,
+      "def": 0.821
+     },
+     {
+      "team": "Trabzonspor",
+      "att": 1.381,
+      "def": 0.744
+     },
+     {
+      "team": "Galatasaray",
+      "att": 1.456,
+      "def": 0.903
+     },
+     {
+      "team": "Besiktas",
+      "att": 1.289,
+      "def": 0.891
+     },
+     {
+      "team": "Amedspor",
+      "att": 1.367,
+      "def": 1.007
+     },
+     {
+      "team": "Buyuksehyr",
+      "att": 1.164,
+      "def": 0.941
+     },
+     {
+      "team": "Corum",
+      "att": 1.3,
+      "def": 1.156
+     },
+     {
+      "team": "Kasimpasa",
+      "att": 0.987,
+      "def": 0.916
+     },
+     {
+      "team": "Goztep",
+      "att": 1.21,
+      "def": 1.123
+     },
+     {
+      "team": "Alanyaspor",
+      "att": 0.881,
+      "def": 0.881
+     },
+     {
+      "team": "Kocaelispor",
+      "att": 0.8,
+      "def": 0.814
+     },
+     {
+      "team": "Rizespor",
+      "att": 0.923,
+      "def": 1.036
+     },
+     {
+      "team": "Konyaspor",
+      "att": 0.784,
+      "def": 0.895
+     },
+     {
+      "team": "Karagumruk",
+      "att": 0.866,
+      "def": 1.024
+     },
+     {
+      "team": "Antalyaspor",
+      "att": 0.88,
+      "def": 1.072
+     },
+     {
+      "team": "Gaziantep",
+      "att": 0.878,
+      "def": 1.101
+     },
+     {
+      "team": "Genclerbirligi",
+      "att": 0.827,
+      "def": 1.097
+     },
+     {
+      "team": "Samsunspor",
+      "att": 0.91,
+      "def": 1.271
+     },
+     {
+      "team": "Kayserispor",
+      "att": 0.818,
+      "def": 1.147
+     },
+     {
+      "team": "Erzurumspor",
+      "att": 0.676,
+      "def": 1.03
+     },
+     {
+      "team": "Eyupspor",
+      "att": 0.673,
+      "def": 1.363
+     }
+    ]
+   },
+   "SC0": {
+    "home_adv": 1.198,
+    "avg_goals": 2.81,
+    "table": [
+     {
+      "team": "Celtic",
+      "att": 1.481,
+      "def": 0.749
+     },
+     {
+      "team": "Rangers",
+      "att": 1.211,
+      "def": 0.819
+     },
+     {
+      "team": "Hearts",
+      "att": 1.32,
+      "def": 0.995
+     },
+     {
+      "team": "Dundee",
+      "att": 1.003,
+      "def": 0.971
+     },
+     {
+      "team": "Motherwell",
+      "att": 1.015,
+      "def": 1.014
+     },
+     {
+      "team": "Aberdeen",
+      "att": 0.876,
+      "def": 0.935
+     },
+     {
+      "team": "Hibernian",
+      "att": 0.918,
+      "def": 0.98
+     },
+     {
+      "team": "Dundee United",
+      "att": 0.936,
+      "def": 1.012
+     },
+     {
+      "team": "Falkirk",
+      "att": 0.936,
+      "def": 1.031
+     },
+     {
+      "team": "St Johnstone",
+      "att": 0.864,
+      "def": 0.99
+     },
+     {
+      "team": "Kilmarnock",
+      "att": 0.969,
+      "def": 1.279
+     },
+     {
+      "team": "Livingston",
+      "att": 0.896,
+      "def": 1.201
+     },
+     {
+      "team": "St Mirren",
+      "att": 0.785,
+      "def": 1.145
+     }
+    ]
+   },
+   "G1": {
+    "home_adv": 1.384,
+    "avg_goals": 2.63,
+    "table": [
+     {
+      "team": "AEK",
+      "att": 1.567,
+      "def": 0.621
+     },
+     {
+      "team": "Panathinaikos",
+      "att": 1.44,
+      "def": 0.719
+     },
+     {
+      "team": "Olympiakos",
+      "att": 0.975,
+      "def": 0.514
+     },
+     {
+      "team": "PAOK",
+      "att": 1.447,
+      "def": 0.877
+     },
+     {
+      "team": "Kalamata",
+      "att": 1.239,
+      "def": 1.225
+     },
+     {
+      "team": "Aris",
+      "att": 1.016,
+      "def": 1.033
+     },
+     {
+      "team": "Iraklis",
+      "att": 0.855,
+      "def": 0.899
+     },
+     {
+      "team": "OFI Crete",
+      "att": 1.143,
+      "def": 1.206
+     },
+     {
+      "team": "Atromitos",
+      "att": 0.962,
+      "def": 1.055
+     },
+     {
+      "team": "Kifisia",
+      "att": 0.833,
+      "def": 1.017
+     },
+     {
+      "team": "Panetolikos",
+      "att": 0.853,
+      "def": 1.138
+     },
+     {
+      "team": "Larisa",
+      "att": 0.837,
+      "def": 1.158
+     },
+     {
+      "team": "Asteras Tripolis",
+      "att": 0.89,
+      "def": 1.267
+     },
+     {
+      "team": "Levadeiakos",
+      "att": 0.797,
+      "def": 1.153
+     },
+     {
+      "team": "Volos NFC",
+      "att": 0.846,
+      "def": 1.268
+     },
+     {
+      "team": "Panserraikos",
+      "att": 0.744,
+      "def": 1.385
+     }
+    ]
+   },
+   "D2": {
+    "home_adv": 1.341,
+    "avg_goals": 3.03,
+    "table": [
+     {
+      "team": "Wolfsburg",
+      "att": 1.491,
+      "def": 0.952
+     },
+     {
+      "team": "St Pauli",
+      "att": 1.044,
+      "def": 0.81
+     },
+     {
+      "team": "Hertha",
+      "att": 1.147,
+      "def": 0.898
+     },
+     {
+      "team": "Nurnberg",
+      "att": 1.203,
+      "def": 0.95
+     },
+     {
+      "team": "Heidenheim",
+      "att": 1.18,
+      "def": 0.978
+     },
+     {
+      "team": "Elversberg",
+      "att": 1.097,
+      "def": 0.946
+     },
+     {
+      "team": "Kaiserslautern",
+      "att": 0.885,
+      "def": 0.779
+     },
+     {
+      "team": "Schalke 04",
+      "att": 0.994,
+      "def": 0.889
+     },
+     {
+      "team": "Paderborn",
+      "att": 1.066,
+      "def": 0.997
+     },
+     {
+      "team": "Magdeburg",
+      "att": 1.068,
+      "def": 1.007
+     },
+     {
+      "team": "Bielefeld",
+      "att": 1.016,
+      "def": 1.032
+     },
+     {
+      "team": "Hannover",
+      "att": 0.938,
+      "def": 0.982
+     },
+     {
+      "team": "Dresden",
+      "att": 0.989,
+      "def": 1.057
+     },
+     {
+      "team": "Greuther Furth",
+      "att": 0.98,
+      "def": 1.062
+     },
+     {
+      "team": "Holstein Kiel",
+      "att": 0.834,
+      "def": 0.946
+     },
+     {
+      "team": "Bochum",
+      "att": 0.815,
+      "def": 0.926
+     },
+     {
+      "team": "Fortuna Dusseldorf",
+      "att": 0.88,
+      "def": 1.023
+     },
+     {
+      "team": "Braunschweig",
+      "att": 0.932,
+      "def": 1.1
+     },
+     {
+      "team": "Karlsruhe",
+      "att": 0.952,
+      "def": 1.126
+     },
+     {
+      "team": "Cottbus",
+      "att": 1.031,
+      "def": 1.231
+     },
+     {
+      "team": "Preußen Münster",
+      "att": 0.894,
+      "def": 1.104
+     },
+     {
+      "team": "Darmstadt",
+      "att": 0.914,
+      "def": 1.151
+     },
+     {
+      "team": "Osnabruck",
+      "att": 0.871,
+      "def": 1.195
+     }
+    ]
+   },
+   "I2": {
+    "home_adv": 1.235,
+    "avg_goals": 2.66,
+    "table": [
+     {
+      "team": "Palermo",
+      "att": 1.261,
+      "def": 0.864
+     },
+     {
+      "team": "Pisa",
+      "att": 1.298,
+      "def": 0.901
+     },
+     {
+      "team": "Venezia",
+      "att": 1.228,
+      "def": 0.859
+     },
+     {
+      "team": "Frosinone",
+      "att": 1.221,
+      "def": 0.88
+     },
+     {
+      "team": "Monza",
+      "att": 1.101,
+      "def": 0.877
+     },
+     {
+      "team": "Verona",
+      "att": 1.251,
+      "def": 1.037
+     },
+     {
+      "team": "Modena",
+      "att": 1.07,
+      "def": 0.908
+     },
+     {
+      "team": "Mantova",
+      "att": 1.089,
+      "def": 0.994
+     },
+     {
+      "team": "Cremonese",
+      "att": 0.976,
+      "def": 0.923
+     },
+     {
+      "team": "Avellino",
+      "att": 1.018,
+      "def": 0.982
+     },
+     {
+      "team": "Juve Stabia",
+      "att": 0.945,
+      "def": 0.923
+     },
+     {
+      "team": "Virtus Entella",
+      "att": 0.955,
+      "def": 0.957
+     },
+     {
+      "team": "Sudtirol",
+      "att": 0.913,
+      "def": 0.93
+     },
+     {
+      "team": "Carrarese",
+      "att": 0.893,
+      "def": 0.945
+     },
+     {
+      "team": "Catanzaro",
+      "att": 1.063,
+      "def": 1.129
+     },
+     {
+      "team": "Pescara",
+      "att": 1.019,
+      "def": 1.088
+     },
+     {
+      "team": "Spezia",
+      "att": 0.985,
+      "def": 1.076
+     },
+     {
+      "team": "Ascoli",
+      "att": 0.855,
+      "def": 0.945
+     },
+     {
+      "team": "Benevento",
+      "att": 0.919,
+      "def": 1.034
+     },
+     {
+      "team": "Cesena",
+      "att": 0.922,
+      "def": 1.049
+     },
+     {
+      "team": "Empoli",
+      "att": 0.934,
+      "def": 1.063
+     },
+     {
+      "team": "Bari",
+      "att": 0.934,
+      "def": 1.067
+     },
+     {
+      "team": "Padova",
+      "att": 0.868,
+      "def": 1.004
+     },
+     {
+      "team": "Reggiana",
+      "att": 0.888,
+      "def": 1.034
+     },
+     {
+      "team": "Sampdoria",
+      "att": 0.855,
+      "def": 1.125
+     },
+     {
+      "team": "Vicenza",
+      "att": 0.901,
+      "def": 1.3
+     },
+     {
+      "team": "Arezzo",
+      "att": 0.87,
+      "def": 1.263
+     }
+    ]
+   },
+   "SP2": {
+    "home_adv": 1.277,
+    "avg_goals": 2.67,
+    "table": [
+     {
+      "team": "Mallorca",
+      "att": 1.044,
+      "def": 0.671
+     },
+     {
+      "team": "Girona",
+      "att": 1.21,
+      "def": 0.799
+     },
+     {
+      "team": "Castellon",
+      "att": 1.178,
+      "def": 0.78
+     },
+     {
+      "team": "Almeria",
+      "att": 1.304,
+      "def": 0.919
+     },
+     {
+      "team": "Eibar",
+      "att": 1.161,
+      "def": 0.878
+     },
+     {
+      "team": "Oviedo",
+      "att": 1.113,
+      "def": 0.853
+     },
+     {
+      "team": "Santander",
+      "att": 1.266,
+      "def": 1.045
+     },
+     {
+      "team": "Malaga",
+      "att": 1.187,
+      "def": 0.98
+     },
+     {
+      "team": "Burgos",
+      "att": 0.923,
+      "def": 0.802
+     },
+     {
+      "team": "La Coruna",
+      "att": 1.048,
+      "def": 0.919
+     },
+     {
+      "team": "Sp Gijon",
+      "att": 0.982,
+      "def": 0.914
+     },
+     {
+      "team": "Granada",
+      "att": 1.059,
+      "def": 1.011
+     },
+     {
+      "team": "Andorra",
+      "att": 1.036,
+      "def": 1.066
+     },
+     {
+      "team": "Valladolid",
+      "att": 0.991,
+      "def": 1.049
+     },
+     {
+      "team": "Sabadell",
+      "att": 0.845,
+      "def": 0.899
+     },
+     {
+      "team": "Las Palmas",
+      "att": 1.033,
+      "def": 1.104
+     },
+     {
+      "team": "Eldense",
+      "att": 0.964,
+      "def": 1.071
+     },
+     {
+      "team": "Cordoba",
+      "att": 1.07,
+      "def": 1.213
+     },
+     {
+      "team": "Mirandes",
+      "att": 0.953,
+      "def": 1.098
+     },
+     {
+      "team": "Huesca",
+      "att": 0.899,
+      "def": 1.062
+     },
+     {
+      "team": "Zaragoza",
+      "att": 0.856,
+      "def": 1.017
+     },
+     {
+      "team": "Cadiz",
+      "att": 0.87,
+      "def": 1.053
+     },
+     {
+      "team": "Celta B",
+      "att": 0.973,
+      "def": 1.203
+     },
+     {
+      "team": "Tenerife",
+      "att": 0.886,
+      "def": 1.102
+     },
+     {
+      "team": "Sociedad B",
+      "att": 1.002,
+      "def": 1.251
+     },
+     {
+      "team": "Cultural Leonesa",
+      "att": 0.877,
+      "def": 1.098
+     },
+     {
+      "team": "Leganes",
+      "att": 0.775,
+      "def": 1.027
+     },
+     {
+      "team": "Albacete",
+      "att": 0.851,
+      "def": 1.175
+     },
+     {
+      "team": "Ceuta",
+      "att": 0.893,
+      "def": 1.26
+     }
+    ]
+   },
+   "F2": {
+    "home_adv": 1.064,
+    "avg_goals": 2.67,
+    "table": [
+     {
+      "team": "St Etienne",
+      "att": 1.323,
+      "def": 0.859
+     },
+     {
+      "team": "Reims",
+      "att": 1.232,
+      "def": 0.927
+     },
+     {
+      "team": "Montpellier",
+      "att": 0.968,
+      "def": 0.748
+     },
+     {
+      "team": "Troyes",
+      "att": 1.124,
+      "def": 0.915
+     },
+     {
+      "team": "Metz",
+      "att": 1.189,
+      "def": 0.973
+     },
+     {
+      "team": "Le Mans",
+      "att": 1.057,
+      "def": 0.89
+     },
+     {
+      "team": "Red Star",
+      "att": 1.024,
+      "def": 0.925
+     },
+     {
+      "team": "Annecy",
+      "att": 0.997,
+      "def": 0.944
+     },
+     {
+      "team": "Nancy",
+      "att": 0.954,
+      "def": 0.947
+     },
+     {
+      "team": "Nantes",
+      "att": 1.047,
+      "def": 1.052
+     },
+     {
+      "team": "Dunkerque",
+      "att": 1.076,
+      "def": 1.085
+     },
+     {
+      "team": "Pau FC",
+      "att": 0.99,
+      "def": 1.05
+     },
+     {
+      "team": "Boulogne",
+      "att": 0.809,
+      "def": 0.885
+     },
+     {
+      "team": "Bastia",
+      "att": 0.873,
+      "def": 0.958
+     },
+     {
+      "team": "Clermont",
+      "att": 0.908,
+      "def": 1.01
+     },
+     {
+      "team": "Rodez",
+      "att": 1.065,
+      "def": 1.201
+     },
+     {
+      "team": "Dijon",
+      "att": 1.093,
+      "def": 1.238
+     },
+     {
+      "team": "Guingamp",
+      "att": 0.949,
+      "def": 1.096
+     },
+     {
+      "team": "Grenoble",
+      "att": 0.839,
+      "def": 1.028
+     },
+     {
+      "team": "Amiens",
+      "att": 0.935,
+      "def": 1.195
+     },
+     {
+      "team": "Sochaux",
+      "att": 0.775,
+      "def": 0.993
+     },
+     {
+      "team": "Laval",
+      "att": 0.961,
+      "def": 1.255
+     }
+    ]
+   }
+  },
+  "nhl": {
+   "home_adv": 1.062,
+   "avg_goals": 6.24,
+   "table": [
+    {
+     "team": "Carolina Hurricanes",
+     "att": 1.206,
+     "def": 0.885
+    },
+    {
+     "team": "Colorado Avalanche",
+     "att": 1.159,
+     "def": 0.902
+    },
+    {
+     "team": "Vegas Golden Knights",
+     "att": 1.115,
+     "def": 0.896
+    },
+    {
+     "team": "Dallas Stars",
+     "att": 0.962,
+     "def": 0.777
+    },
+    {
+     "team": "Boston Bruins",
+     "att": 1.118,
+     "def": 0.914
+    },
+    {
+     "team": "Minnesota Wild",
+     "att": 1.092,
+     "def": 0.898
+    },
+    {
+     "team": "Edmonton Oilers",
+     "att": 1.186,
+     "def": 0.997
+    },
+    {
+     "team": "Tampa Bay Lightning",
+     "att": 1.058,
+     "def": 0.899
+    },
+    {
+     "team": "New York Rangers",
+     "att": 1.012,
+     "def": 0.866
+    },
+    {
+     "team": "Utah Mammoth",
+     "att": 1.123,
+     "def": 0.986
+    },
+    {
+     "team": "Washington Capitals",
+     "att": 1.081,
+     "def": 0.951
+    },
+    {
+     "team": "Ottawa Senators",
+     "att": 0.98,
+     "def": 0.9
+    },
+    {
+     "team": "New York Islanders",
+     "att": 0.949,
+     "def": 0.902
+    },
+    {
+     "team": "Buffalo Sabres",
+     "att": 1.074,
+     "def": 1.029
+    },
+    {
+     "team": "Montreal Canadiens",
+     "att": 1.078,
+     "def": 1.033
+    },
+    {
+     "team": "St. Louis Blues",
+     "att": 1.034,
+     "def": 1.042
+    },
+    {
+     "team": "Florida Panthers",
+     "att": 1.05,
+     "def": 1.066
+    },
+    {
+     "team": "Nashville Predators",
+     "att": 0.975,
+     "def": 1.003
+    },
+    {
+     "team": "Seattle Kraken",
+     "att": 1.051,
+     "def": 1.095
+    },
+    {
+     "team": "Columbus Blue Jackets",
+     "att": 0.928,
+     "def": 0.986
+    },
+    {
+     "team": "Anaheim Ducks",
+     "att": 1.02,
+     "def": 1.093
+    },
+    {
+     "team": "New Jersey Devils",
+     "att": 0.979,
+     "def": 1.057
+    },
+    {
+     "team": "Winnipeg Jets",
+     "att": 0.917,
+     "def": 0.999
+    },
+    {
+     "team": "Pittsburgh Penguins",
+     "att": 1.08,
+     "def": 1.179
+    },
+    {
+     "team": "Philadelphia Flyers",
+     "att": 0.812,
+     "def": 0.895
+    },
+    {
+     "team": "Toronto Maple Leafs",
+     "att": 1.055,
+     "def": 1.166
+    },
+    {
+     "team": "Detroit Red Wings",
+     "att": 0.897,
+     "def": 1.027
+    },
+    {
+     "team": "San Jose Sharks",
+     "att": 0.919,
+     "def": 1.142
+    },
+    {
+     "team": "Los Angeles Kings",
+     "att": 0.783,
+     "def": 1.0
+    },
+    {
+     "team": "Chicago Blackhawks",
+     "att": 0.83,
+     "def": 1.139
+    },
+    {
+     "team": "Vancouver Canucks",
+     "att": 0.88,
+     "def": 1.298
+    },
+    {
+     "team": "Calgary Flames",
+     "att": 0.797,
+     "def": 1.18
+    }
+   ]
+  },
+  "nba": {
+   "home_adv": 1.79,
+   "avg_points": 228.1,
+   "table": [
+    {
+     "team": "New York Knicks",
+     "off": 114.9,
+     "def": 108.7
+    },
+    {
+     "team": "San Antonio Spurs",
+     "off": 116.4,
+     "def": 110.3
+    },
+    {
+     "team": "Oklahoma City Thunder",
+     "off": 116.2,
+     "def": 110.6
+    },
+    {
+     "team": "Detroit Pistons",
+     "off": 114.1,
+     "def": 110.3
+    },
+    {
+     "team": "Boston Celtics",
+     "off": 113.5,
+     "def": 109.8
+    },
+    {
+     "team": "Charlotte Hornets",
+     "off": 114.9,
+     "def": 111.6
+    },
+    {
+     "team": "Denver Nuggets",
+     "off": 117.3,
+     "def": 115.2
+    },
+    {
+     "team": "Houston Rockets",
+     "off": 113.2,
+     "def": 111.2
+    },
+    {
+     "team": "Toronto Raptors",
+     "off": 114.1,
+     "def": 112.5
+    },
+    {
+     "team": "Cleveland Cavaliers",
+     "off": 115.3,
+     "def": 113.8
+    },
+    {
+     "team": "LA Clippers",
+     "off": 114.1,
+     "def": 113.1
+    },
+    {
+     "team": "Atlanta Hawks",
+     "off": 115.5,
+     "def": 114.6
+    },
+    {
+     "team": "Miami Heat",
+     "off": 117.4,
+     "def": 116.6
+    },
+    {
+     "team": "Los Angeles Lakers",
+     "off": 113.8,
+     "def": 113.0
+    },
+    {
+     "team": "Minnesota Timberwolves",
+     "off": 114.6,
+     "def": 113.9
+    },
+    {
+     "team": "Team Stars",
+     "off": 111.4,
+     "def": 111.1
+    },
+    {
+     "team": "Portland Trail Blazers",
+     "off": 113.7,
+     "def": 113.6
+    },
+    {
+     "team": "Orlando Magic",
+     "off": 113.6,
+     "def": 113.5
+    },
+    {
+     "team": "Phoenix Suns",
+     "off": 112.8,
+     "def": 112.7
+    },
+    {
+     "team": "World",
+     "off": 112.3,
+     "def": 112.3
+    },
+    {
+     "team": "Team Stripes",
+     "off": 111.3,
+     "def": 111.6
+    },
+    {
+     "team": "Philadelphia 76ers",
+     "off": 113.8,
+     "def": 114.6
+    },
+    {
+     "team": "Golden State Warriors",
+     "off": 113.9,
+     "def": 114.9
+    },
+    {
+     "team": "New Orleans Pelicans",
+     "off": 115.0,
+     "def": 116.6
+    },
+    {
+     "team": "Chicago Bulls",
+     "off": 115.0,
+     "def": 117.9
+    },
+    {
+     "team": "Dallas Mavericks",
+     "off": 114.3,
+     "def": 117.3
+    },
+    {
+     "team": "Indiana Pacers",
+     "off": 113.8,
+     "def": 117.3
+    },
+    {
+     "team": "Milwaukee Bucks",
+     "off": 111.9,
+     "def": 115.6
+    },
+    {
+     "team": "Utah Jazz",
+     "off": 115.4,
+     "def": 119.6
+    },
+    {
+     "team": "Memphis Grizzlies",
+     "off": 114.0,
+     "def": 118.2
+    },
+    {
+     "team": "Sacramento Kings",
+     "off": 112.7,
+     "def": 117.2
+    },
+    {
+     "team": "Brooklyn Nets",
+     "off": 109.5,
+     "def": 115.0
+    },
+    {
+     "team": "Washington Wizards",
+     "off": 113.6,
+     "def": 119.4
+    }
+   ]
+  },
+  "euroleague": {
+   "home_adv": 2.7,
+   "avg_points": 173.0,
+   "table": [
+    {
+     "team": "Olympiacos Piraeus",
+     "off": 92.8,
+     "def": 86.3
+    },
+    {
+     "team": "Panathinaikos AKTOR Athens",
+     "off": 86.6,
+     "def": 80.8
+    },
+    {
+     "team": "Fenerbahce Tarfin Istanbul",
+     "off": 85.3,
+     "def": 81.1
+    },
+    {
+     "team": "Valencia Basket",
+     "off": 91.7,
+     "def": 88.3
+    },
+    {
+     "team": "Real Madrid",
+     "off": 90.0,
+     "def": 86.8
+    },
+    {
+     "team": "Hapoel IBI Tel Aviv",
+     "off": 88.4,
+     "def": 85.8
+    },
+    {
+     "team": "Crvena Zvezda Meridianbet Belgrade",
+     "off": 83.7,
+     "def": 82.3
+    },
+    {
+     "team": "Fenerbahce Beko Istanbul",
+     "off": 84.5,
+     "def": 84.1
+    },
+    {
+     "team": "FC Barcelona",
+     "off": 87.3,
+     "def": 87.2
+    },
+    {
+     "team": "AS Monaco",
+     "off": 86.9,
+     "def": 86.9
+    },
+    {
+     "team": "Dubai Basketball",
+     "off": 84.8,
+     "def": 85.1
+    },
+    {
+     "team": "Besiktas Istanbul",
+     "off": 88.8,
+     "def": 89.3
+    },
+    {
+     "team": "EA7 Emporio Armani Milan",
+     "off": 86.6,
+     "def": 87.1
+    },
+    {
+     "team": "Zalgiris Kaunas",
+     "off": 85.0,
+     "def": 85.6
+    },
+    {
+     "team": "Partizan Mozzart Bet Belgrade",
+     "off": 81.6,
+     "def": 82.2
+    },
+    {
+     "team": "Virtus Bologna",
+     "off": 85.6,
+     "def": 86.3
+    },
+    {
+     "team": "Anadolu Efes Istanbul",
+     "off": 83.6,
+     "def": 84.6
+    },
+    {
+     "team": "FC Bayern Munich",
+     "off": 86.8,
+     "def": 88.8
+    },
+    {
+     "team": "Maccabi Rapyd Tel Aviv",
+     "off": 86.3,
+     "def": 88.7
+    },
+    {
+     "team": "Paris Basketball",
+     "off": 87.0,
+     "def": 90.3
+    },
+    {
+     "team": "LDLC ASVEL Villeurbanne",
+     "off": 86.1,
+     "def": 90.3
+    },
+    {
+     "team": "Kosner Baskonia Vitoria-Gasteiz",
+     "off": 85.1,
+     "def": 90.7
+    },
+    {
+     "team": "Armani Olimpia Milan",
+     "off": 85.1,
+     "def": 91.0
+    }
+   ]
+  }
+ }
+}
